@@ -1,10 +1,8 @@
-# Railway — Docker single service: API + WebSockets + static game client
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
 healthcheckPath = "/api/health"
-healthcheckTimeout = 60
+healthcheckTimeout = 100
 restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 5
