@@ -1,0 +1,326 @@
+{
+  "player": {
+    "file": "assets/player.png",
+    "w": 160,
+    "h": 312,
+    "cols": 4,
+    "rows": 4,
+    "cell": 40,
+    "bytes": 9694
+  },
+  "ivy": {
+    "file": "assets/ivy.png",
+    "w": 212,
+    "h": 296,
+    "cols": 4,
+    "rows": 4,
+    "cell": 53,
+    "bytes": 11267
+  },
+  "dax": {
+    "file": "assets/dax.png",
+    "w": 180,
+    "h": 296,
+    "cols": 4,
+    "rows": 4,
+    "cell": 45,
+    "bytes": 12418
+  },
+  "nia": {
+    "file": "assets/nia.png",
+    "w": 164,
+    "h": 296,
+    "cols": 4,
+    "rows": 4,
+    "cell": 41,
+    "bytes": 12224
+  },
+  "sol": {
+    "file": "assets/sol.png",
+    "w": 244,
+    "h": 296,
+    "cols": 4,
+    "rows": 4,
+    "cell": 61,
+    "bytes": 12959
+  },
+  "orin": {
+    "file": "assets/orin.png",
+    "w": 296,
+    "h": 296,
+    "cols": 4,
+    "rows": 4,
+    "cell": 74,
+    "bytes": 9906
+  },
+  "vera": {
+    "file": "assets/vera.png",
+    "w": 160,
+    "h": 296,
+    "cols": 4,
+    "rows": 4,
+    "cell": 40,
+    "bytes": 10202
+  },
+  "kip": {
+    "file": "assets/kip.png",
+    "w": 240,
+    "h": 296,
+    "cols": 4,
+    "rows": 4,
+    "cell": 60,
+    "bytes": 12992
+  },
+  "ai": {
+    "file": "assets/ai.png",
+    "w": 320,
+    "h": 320,
+    "cols": 4,
+    "rows": 4,
+    "cell": 80,
+    "bytes": 16102
+  },
+  "proof": {
+    "file": "assets/proof.png",
+    "w": 268,
+    "h": 320,
+    "cols": 4,
+    "rows": 4,
+    "cell": 67,
+    "bytes": 17701
+  },
+  "ranger": {
+    "file": "assets/ranger.png",
+    "w": 320,
+    "h": 320,
+    "cols": 4,
+    "rows": 4,
+    "cell": 80,
+    "bytes": 18024
+  },
+  "satire": {
+    "file": "assets/satire.png",
+    "w": 320,
+    "h": 296,
+    "cols": 4,
+    "rows": 4,
+    "cell": 80,
+    "bytes": 22017
+  },
+  "b_lurk": {
+    "file": "assets/b_lurk.png",
+    "w": 272,
+    "h": 320,
+    "cols": 4,
+    "rows": 4,
+    "cell": 68,
+    "bytes": 12143
+  },
+  "b_ghost": {
+    "file": "assets/b_ghost.png",
+    "w": 320,
+    "h": 312,
+    "cols": 4,
+    "rows": 4,
+    "cell": 80,
+    "bytes": 18019
+  },
+  "b_vamp": {
+    "file": "assets/b_vamp.png",
+    "w": 320,
+    "h": 320,
+    "cols": 4,
+    "rows": 4,
+    "cell": 80,
+    "bytes": 19229
+  },
+  "b_algo": {
+    "file": "assets/b_algo.png",
+    "w": 316,
+    "h": 320,
+    "cols": 4,
+    "rows": 4,
+    "cell": 79,
+    "bytes": 23148
+  },
+  "b_ghoul": {
+    "file": "assets/b_ghoul.png",
+    "w": 320,
+    "h": 280,
+    "cols": 4,
+    "rows": 4,
+    "cell": 80,
+    "bytes": 19956
+  },
+  "tiles": {
+    "file": "assets/tiles.png",
+    "w": 512,
+    "h": 256,
+    "cols": 8,
+    "rows": 4,
+    "cell": 64,
+    "bytes": 28372
+  },
+  "hook": {
+    "file": "assets/hook.png",
+    "w": 256,
+    "h": 256,
+    "cols": 4,
+    "rows": 4,
+    "cell": 64,
+    "bytes": 10509
+  },
+  "comment": {
+    "file": "assets/comment.png",
+    "w": 224,
+    "h": 212,
+    "cols": 4,
+    "rows": 4,
+    "cell": 56,
+    "bytes": 9733
+  },
+  "pipeline": {
+    "file": "assets/pipeline.png",
+    "w": 212,
+    "h": 256,
+    "cols": 4,
+    "rows": 4,
+    "cell": 53,
+    "bytes": 13570
+  },
+  "h_scroll": {
+    "file": "assets/h_scroll.png",
+    "w": 180,
+    "h": 296,
+    "cols": 4,
+    "rows": 4,
+    "cell": 45,
+    "bytes": 11860
+  },
+  "h_rally": {
+    "file": "assets/h_rally.png",
+    "w": 164,
+    "h": 296,
+    "cols": 4,
+    "rows": 4,
+    "cell": 41,
+    "bytes": 12111
+  },
+  "h_surf": {
+    "file": "assets/h_surf.png",
+    "w": 244,
+    "h": 296,
+    "cols": 4,
+    "rows": 4,
+    "cell": 61,
+    "bytes": 13272
+  },
+  "h_arch": {
+    "file": "assets/h_arch.png",
+    "w": 160,
+    "h": 296,
+    "cols": 4,
+    "rows": 4,
+    "cell": 40,
+    "bytes": 10192
+  },
+  "h_climb": {
+    "file": "assets/h_climb.png",
+    "w": 240,
+    "h": 296,
+    "cols": 4,
+    "rows": 4,
+    "cell": 60,
+    "bytes": 12985
+  },
+  "build": {
+    "file": "assets/build.png",
+    "w": 1024,
+    "h": 512,
+    "cols": 8,
+    "rows": 4,
+    "cell": 128,
+    "bytes": 94212
+  },
+  "nature": {
+    "file": "assets/nature.png",
+    "w": 1024,
+    "h": 512,
+    "cols": 8,
+    "rows": 4,
+    "cell": 128,
+    "bytes": 96670
+  },
+  "items": {
+    "file": "assets/items.png",
+    "w": 1024,
+    "h": 512,
+    "cols": 8,
+    "rows": 4,
+    "cell": 128,
+    "bytes": 84647
+  },
+  "readers": {
+    "file": "assets/readers.png",
+    "w": 560,
+    "h": 448,
+    "cols": 5,
+    "rows": 4,
+    "cell": 112,
+    "bytes": 66689
+  },
+  "parts": {
+    "file": "assets/parts.png",
+    "w": 384,
+    "h": 48,
+    "cols": 8,
+    "rows": 1,
+    "cell": 48,
+    "bytes": 5827
+  },
+  "crest": {
+    "file": "assets/crest.png",
+    "w": 384,
+    "h": 96,
+    "cols": 4,
+    "rows": 1,
+    "cell": 96,
+    "bytes": 9447
+  },
+  "props": {
+    "file": "assets/props.png",
+    "w": 768,
+    "h": 96,
+    "cols": 8,
+    "rows": 1,
+    "cell": 96,
+    "bytes": 16975
+  },
+  "comment2": {
+    "file": "assets/comment2.png",
+    "w": 384,
+    "h": 384,
+    "cols": 4,
+    "rows": 4,
+    "cell": 96,
+    "bytes": 46361
+  },
+  "pipeline2": {
+    "file": "assets/pipeline2.png",
+    "w": 384,
+    "h": 384,
+    "cols": 4,
+    "rows": 4,
+    "cell": 96,
+    "bytes": 44877
+  },
+  "water": {
+    "file": "assets/water.png",
+    "w": 512,
+    "h": 128,
+    "cols": 8,
+    "rows": 2,
+    "cell": 64,
+    "bytes": 20978
+  }
+}

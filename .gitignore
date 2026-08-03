@@ -1,0 +1,10 @@
+node_modules
+.DS_Store
+.env
+.env.local
+*.log
+.vite
+data/*.json
+data/*.tmp
+# dist is built on Railway; keep out of git
+dist
