@@ -12,6 +12,14 @@ Production stack:
 | Save | `localStorage` + hash-chained event ledger (blockchain seam) |
 | Commerce | Stripe Payment Links (env) |
 
+## Live
+
+- **Play:** https://growth-island-production.up.railway.app  
+- **API health:** https://growth-island-production.up.railway.app/api/health  
+- **GitHub:** https://github.com/VegasCryptoAgent/growth-island  
+
+Deployed on **Railway** (Node + WebSockets + static client in one service).
+
 ## Quick start (full stack)
 
 ```bash
