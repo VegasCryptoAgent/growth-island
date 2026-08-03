@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+.vite
+data/*.json
+*.log
+.env
+.env.local
+src/game/data/*.raw.js
