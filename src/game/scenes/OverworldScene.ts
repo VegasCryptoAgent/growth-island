@@ -148,53 +148,74 @@ export class OverworldScene extends Phaser.Scene {
 
     this.app = (this.game.registry.get('app') as GameApp) || (window as any).__GI_APP;
     console.log('[overworld] gen map');
-    const { grid, walkable } = generateIsland();
+    const { grid, walkable: genWalk } = generateIsland();
     this.grid = grid;
-    // Generous walkable: land tiles + anything non-sea. Never soft-lock the player.
+    // Free exploration: walk all land (grass/path/beach). Only deep sea is blocked.
     this.walkable = (tx: number, ty: number) => {
-      if (tx < 1 || ty < 1 || tx >= MAP_W - 1 || ty >= MAP_H - 1) return false;
+      if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return false;
       const t = grid[ty * MAP_W + tx];
-      if (t === 1 || t === 2 || t === 3) return true;
-      // Allow near-edge grass that MapGen marked sea but is interior-ish
-      return walkable(tx, ty);
+      return t === 1 || t === 2 || t === 3 || genWalk(tx, ty);
     };
 
     const worldW = MAP_W * TILE;
     const worldH = MAP_H * TILE;
     this.cameras.main.setBounds(0, 0, worldW, worldH);
-    this.cameras.main.setZoom(cameraZoom() * 0.92);
-    this.cameras.main.setBackgroundColor('#061018');
+    this.cameras.main.setZoom(cameraZoom() * 0.88);
+    this.cameras.main.setBackgroundColor('#1f86c4');
     console.log('[overworld] camera ok');
 
-    // Cyber Networking Hub backdrop (demo-aligned)
-    if (this.textures.exists('hub_bg')) {
+    // REAL GAME WORLD: procedural island ground (walkable map), NOT one stretched photo
+    try {
+      this.paintGround(grid);
+    } catch {
       this.add
-        .image(worldW / 2, worldH / 2, 'hub_bg')
-        .setDisplaySize(worldW * 1.08, worldH * 1.08)
+        .rectangle(worldW / 2, worldH / 2, worldW, worldH, 0x0a2038)
         .setDepth(0);
-    } else {
-      try {
-        this.paintGround(grid);
-      } catch {
-        this.add
-          .rectangle(worldW / 2, worldH / 2, worldW, worldH, 0x0a2038)
-          .setDepth(0);
-      }
+    }
+    // Zone color tints so districts feel distinct while exploring
+    for (const z of ZONES as any[]) {
+      const cx = (z.x + z.w / 2) * TILE;
+      const cy = (z.y + z.h / 2) * TILE;
+      const col = Phaser.Display.Color.HexStringToColor(z.a || '#0A66C2').color;
+      this.add
+        .circle(cx, cy, Math.min(z.w, z.h) * TILE * 0.42, col, 0.12)
+        .setDepth(1);
+      this.add
+        .text(cx, z.y * TILE + 18, z.n, {
+          fontFamily: 'system-ui',
+          fontSize: '12px',
+          color: '#123253',
+          fontStyle: 'bold',
+          backgroundColor: '#ffffffcc',
+          padding: { x: 6, y: 3 },
+        })
+        .setOrigin(0.5)
+        .setDepth(40);
+    }
+    // Hub art is a LANDMARK in Profile Plaza — not the whole board
+    if (this.textures.exists('hub_bg')) {
+      const hx = 52 * TILE;
+      const hy = 36 * TILE;
+      this.add
+        .image(hx, hy, 'hub_bg')
+        .setDisplaySize(22 * TILE, 14 * TILE)
+        .setAlpha(0.92)
+        .setDepth(2);
     }
     // Neon plaza rings
     {
-      const g = this.add.graphics().setDepth(1);
+      const g = this.add.graphics().setDepth(3);
       const cx = 52 * TILE;
       const cy = 38 * TILE;
-      g.lineStyle(3, 0x2de2e6, 0.4);
+      g.lineStyle(3, 0x2de2e6, 0.45);
       g.strokeCircle(cx, cy, 100);
-      g.lineStyle(2, 0xff4fd8, 0.3);
+      g.lineStyle(2, 0xff4fd8, 0.35);
       g.strokeCircle(cx + 36, cy - 16, 56);
     }
     this.add
-      .text(58 * TILE, 28 * TILE, 'NETWORKING HUB', {
+      .text(52 * TILE, 30 * TILE, 'NETWORKING HUB', {
         fontFamily: 'system-ui',
-        fontSize: '14px',
+        fontSize: '13px',
         color: '#5ef0ff',
         fontStyle: 'bold',
         backgroundColor: '#0a1628cc',
@@ -216,18 +237,18 @@ export class OverworldScene extends Phaser.Scene {
       }
     }
     console.log('[overworld] spawn player', px, py);
-    if (this.textures.exists('cory')) {
-      this.player = this.physics.add.sprite(px, py, 'cory');
-      // HD 3D-style hub sprite — tall full-body
-      this.player.setDisplaySize(52, 96);
-      this.player.setOrigin(0.5, 0.95);
-    } else if (
+    // Prefer animated 4x4 sheet for real game feel; HD cory is static portrait-style
+    const useSheet =
       this.textures.exists('player') &&
-      this.textures.get('player').has('player_0')
-    ) {
+      this.textures.get('player').has('player_0');
+    if (useSheet) {
       this.player = this.physics.add.sprite(px, py, 'player', 'player_0');
-      this.player.setDisplaySize(40, 48);
+      this.player.setDisplaySize(44, 52);
       this.player.setOrigin(0.5, 0.9);
+    } else if (this.textures.exists('cory')) {
+      this.player = this.physics.add.sprite(px, py, 'cory');
+      this.player.setDisplaySize(48, 88);
+      this.player.setOrigin(0.5, 0.95);
     } else {
       this.player = this.physics.add.sprite(px, py, 'player');
       this.player.setDisplaySize(40, 48);
@@ -237,12 +258,17 @@ export class OverworldScene extends Phaser.Scene {
     this.player.setDepth(py);
     if (this.player.body) {
       (this.player.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
-      (this.player.body as Phaser.Physics.Arcade.Body).setSize(20, 16);
+      (this.player.body as Phaser.Physics.Arcade.Body).setSize(18, 14);
       (this.player.body as Phaser.Physics.Arcade.Body).setOffset(
-        (this.player.width - 20) / 2,
-        this.player.height - 18
+        (this.player.width - 18) / 2,
+        this.player.height - 16
       );
     }
+    // Foot shadow so the character reads as grounded in a game world
+    this.add
+      .ellipse(px, py + 2, 28, 10, 0x000000, 0.22)
+      .setDepth(py - 1)
+      .setName('playerShadow');
     this.cameras.main.centerOn(px, py);
     this.cameras.main.startFollow(this.player, true, 0.18, 0.18);
     console.log('[overworld] player ready');
@@ -253,7 +279,7 @@ export class OverworldScene extends Phaser.Scene {
       if (!z) continue;
       const tx = z.x + ((z.w / 2 + (s.ox || 0)) | 0);
       const ty = z.y + ((z.h / 2 + (s.oy || 0)) | 0);
-      if (!walkable(tx, ty)) continue;
+      if (!this.walkable(tx, ty)) continue;
       const x = tx * TILE + TILE / 2;
       const y = ty * TILE + TILE / 2;
       this.add.circle(x, y - 6, 8, 0xffc53d).setStrokeStyle(2, 0x123253).setDepth(y);
@@ -688,8 +714,8 @@ export class OverworldScene extends Phaser.Scene {
 
     let vx = 0,
       vy = 0;
-    // Snappy walk so mouse/finger feel responsive (Champion Island–like)
-    const speed = isCoarsePointer() ? 340 : 300;
+    // Full-game walk speed (Champion Island / top-down RPG feel)
+    const speed = isCoarsePointer() ? 380 : 340;
 
     // 1) ScreenMove drives MobileInput every frame (mouse hold / finger drag / click-to-move)
     const sm = (this.app as any)?.ui?.screenMove as
@@ -746,29 +772,15 @@ export class OverworldScene extends Phaser.Scene {
       vy /= len;
     }
 
-    // Stuck recovery: if standing on non-walkable, soft-slide toward plaza center
-    {
-      const here = worldTile(this.player.x, this.player.y);
-      if (!this.walkable(here.tx, here.ty)) {
-        const tx = 52 * TILE + TILE / 2;
-        const ty = 38 * TILE + TILE / 2;
-        const dx = tx - this.player.x;
-        const dy = ty - this.player.y;
-        const d = Math.hypot(dx, dy) || 1;
-        // Nudge toward center even without input so the player can never soft-lock
-        vx = dx / d;
-        vy = dy / d;
-      }
-    }
-
     // Position-driven movement (reliable on mobile; physics alone can fail)
-    const dtSec = Math.min(0.05, Math.max(0.008, dtMs / 1000)); // clamp bad frame spikes
+    const dtSec = Math.min(0.05, Math.max(0.008, dtMs / 1000));
     if (vx || vy) {
       const step = speed * dtSec;
       let nx = this.player.x + vx * step;
       let ny = this.player.y + vy * step;
       const { tx, ty } = worldTile(nx, ny);
       if (!this.walkable(tx, ty)) {
+        // Slide along coast — free roam on land, soft stop at sea only
         const hx = this.player.x + vx * step;
         const hy = this.player.y + vy * step;
         const okX = this.walkable(
@@ -781,15 +793,6 @@ export class OverworldScene extends Phaser.Scene {
         );
         nx = okX ? hx : this.player.x;
         ny = okY ? hy : this.player.y;
-        // Still stuck after slide? teleport to nearest plaza tile
-        if (
-          nx === this.player.x &&
-          ny === this.player.y &&
-          !this.walkable(worldTile(nx, ny).tx, worldTile(nx, ny).ty)
-        ) {
-          nx = 52 * TILE + TILE / 2;
-          ny = 38 * TILE + TILE / 2;
-        }
       }
       this.player.setPosition(nx, ny);
       if (this.player.body) {
@@ -805,15 +808,38 @@ export class OverworldScene extends Phaser.Scene {
       if (Math.abs(vx) > Math.abs(vy)) {
         this.facing = vx < 0 ? 'left' : 'right';
         this.player.setFlipX(vx < 0);
+        if (this.anims.exists('player-walk-side')) {
+          this.player.anims.play('player-walk-side', true);
+        }
       } else if (vy < 0) {
         this.facing = 'up';
         this.player.setFlipX(false);
+        if (this.anims.exists('player-walk-up')) {
+          this.player.anims.play('player-walk-up', true);
+        }
       } else {
         this.facing = 'down';
         this.player.setFlipX(false);
+        if (this.anims.exists('player-walk-down')) {
+          this.player.anims.play('player-walk-down', true);
+        }
+      }
+    } else if (this.anims.exists('player-idle-down')) {
+      if (this.facing === 'up' && this.anims.exists('player-walk-up')) {
+        this.player.anims.play('player-idle-down', true);
+      } else {
+        this.player.anims.play('player-idle-down', true);
       }
     }
     this.player.setDepth(this.player.y);
+    // Keep foot shadow under player
+    const shadow = this.children.getByName('playerShadow') as
+      | Phaser.GameObjects.Ellipse
+      | undefined;
+    if (shadow) {
+      shadow.setPosition(this.player.x, this.player.y + 2);
+      shadow.setDepth(this.player.y - 1);
+    }
 
     try {
       this.app?.ui?.updateMinimap?.({
