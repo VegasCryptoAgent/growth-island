@@ -30,7 +30,13 @@ html,body,#app{
   user-select:none;
 }
 #ui-root{position:fixed;inset:0;z-index:20;pointer-events:none;height:100%;height:100dvh}
-#ui-root .panel,#ui-root .hud,#ui-root button,#ui-root .interactive{pointer-events:auto}
+/* Critical: d-pad lives outside .hud — must re-enable hits or mobile cannot move */
+#ui-root .panel,
+#ui-root .hud,
+#ui-root .touch-pad,
+#ui-root button,
+#ui-root .pad-btn,
+#ui-root .interactive{pointer-events:auto}
 
 .card{background:#fff;border:2px solid #123253;border-radius:20px;
   box-shadow:0 6px 0 #123253,0 18px 34px -18px rgba(18,50,83,.55)}
@@ -77,13 +83,53 @@ html,body,#app{
   .act{width:48px;height:48px;font-size:18px}
 }
 
-/* touch d-pad — coarse only */
-.touch-pad{display:none;position:fixed;left:14px;bottom:18px;width:150px;height:150px;z-index:26}
+/* touch d-pad — phones/tablets (body.touch) */
+.touch-pad{
+  display:none;
+  position:fixed;
+  left:12px;
+  bottom:max(18px, env(safe-area-inset-bottom, 0px));
+  width:156px;
+  height:156px;
+  z-index:30;
+  touch-action:none;
+  -webkit-user-select:none;
+  user-select:none;
+}
 body.touch .touch-pad{display:block}
 body.overlay .touch-pad,body.overlay .hud{display:none!important}
-.touch-pad b{position:absolute;width:48px;height:48px;border-radius:14px;background:#fff;border:2px solid #123253;
-  box-shadow:0 4px 0 #9FB6CE;display:grid;place-items:center;font-weight:900;color:#0A66C2;user-select:none}
-.touch-pad b.on{background:#0A66C2;color:#fff;transform:translateY(2px);box-shadow:0 1px 0 #0B4C90}
+.touch-pad .pad-btn{
+  position:absolute;
+  width:52px;
+  height:52px;
+  border-radius:16px;
+  background:#fff;
+  border:2px solid #123253;
+  box-shadow:0 4px 0 #9FB6CE;
+  display:grid;
+  place-items:center;
+  font-weight:900;
+  font-size:18px;
+  color:#0A66C2;
+  touch-action:none;
+  -webkit-user-select:none;
+  user-select:none;
+  -webkit-tap-highlight-color:transparent;
+  padding:0;
+  margin:0;
+  appearance:none;
+  cursor:pointer;
+}
+.touch-pad .pad-btn.on,
+.touch-pad .pad-btn:active{
+  background:#0A66C2;
+  color:#fff;
+  transform:translateY(2px);
+  box-shadow:0 1px 0 #0B4C90;
+}
+@media (max-width:680px){
+  .hud-actions{bottom:max(16px, env(safe-area-inset-bottom, 0px)); z-index:28}
+}
 
 textarea,input[type=text]{width:100%;background:#FFFDF4;border:2px solid #123253;border-radius:14px;
   padding:11px 13px;font:inherit;font-weight:600;resize:vertical;outline:none}

@@ -61,7 +61,7 @@ export class GameApp {
       onJournal: () => this.openJournal(),
       onMenu: () => this.openPause(),
       onSound: () => this.toggleSound(),
-      onPad: (d) => this.scene?.setPadDir(d),
+      onPadAxes: (x, y) => this.scene?.setPadAxes(x, y),
     });
     (window as any).__GI_APP = this;
     game.registry.set('app', this);

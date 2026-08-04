@@ -9,7 +9,8 @@ export type UIHandlers = {
   onJournal: () => void;
   onMenu: () => void;
   onSound: () => void;
-  onPad: (dir: string | null) => void;
+  /** Active d-pad axes in [-1,0,1] */
+  onPadAxes: (x: number, y: number) => void;
 };
 
 export class UIRoot {
@@ -25,11 +26,22 @@ export class UIRoot {
   soundBtn!: HTMLElement;
   panelHost!: HTMLElement;
   handlers: UIHandlers;
+  private padHeld = new Set<string>();
 
   constructor(root: HTMLElement, handlers: UIHandlers) {
     this.root = root;
     this.handlers = handlers;
     this.mount();
+  }
+
+  private emitPad() {
+    let x = 0,
+      y = 0;
+    if (this.padHeld.has('left')) x -= 1;
+    if (this.padHeld.has('right')) x += 1;
+    if (this.padHeld.has('up')) y -= 1;
+    if (this.padHeld.has('down')) y += 1;
+    this.handlers.onPadAxes(x, y);
   }
 
   private mount() {
@@ -52,22 +64,22 @@ export class UIRoot {
           </div>
         </div>
         <div class="hud-tr">
-          <button class="card btn2" id="btnWho" style="padding:8px 10px;font-size:12px">👥 <span id="whoCount">0</span></button>
-          <button class="card btn2" id="btnSound" style="padding:8px 10px;font-size:12px">🔊</button>
-          <button class="card btn2" id="btnMenu" style="padding:8px 10px;font-size:12px">☰</button>
-          <button class="card btn2" id="btnJournal" style="padding:8px 10px;font-size:12px">📓</button>
+          <button type="button" class="card btn2" id="btnWho" style="padding:8px 10px;font-size:12px">👥 <span id="whoCount">0</span></button>
+          <button type="button" class="card btn2" id="btnSound" style="padding:8px 10px;font-size:12px">🔊</button>
+          <button type="button" class="card btn2" id="btnMenu" style="padding:8px 10px;font-size:12px">☰</button>
+          <button type="button" class="card btn2" id="btnJournal" style="padding:8px 10px;font-size:12px">📓</button>
         </div>
         <div class="hud-actions">
-          <button class="act" id="actConnect" title="Connect"><span>🤝</span><b>Connect</b></button>
-          <button class="act" id="actTalk" title="Talk"><span>💬</span><b>Talk</b></button>
-          <button class="act" id="actPuzzle" title="Puzzles"><span>🧩</span><b>Puzzles</b></button>
+          <button type="button" class="act" id="actConnect" title="Connect"><span>🤝</span><b>Connect</b></button>
+          <button type="button" class="act" id="actTalk" title="Talk"><span>💬</span><b>Talk</b></button>
+          <button type="button" class="act" id="actPuzzle" title="Puzzles"><span>🧩</span><b>Puzzles</b></button>
         </div>
       </div>
-      <div class="touch-pad" id="pad">
-        <b data-d="up" style="left:51px;top:0">▲</b>
-        <b data-d="left" style="left:0;top:51px">◀</b>
-        <b data-d="right" style="left:102px;top:51px">▶</b>
-        <b data-d="down" style="left:51px;top:102px">▼</b>
+      <div class="touch-pad" id="pad" aria-label="Movement pad">
+        <button type="button" class="pad-btn" data-d="up" style="left:51px;top:0" aria-label="Up">▲</button>
+        <button type="button" class="pad-btn" data-d="left" style="left:0;top:51px" aria-label="Left">◀</button>
+        <button type="button" class="pad-btn" data-d="right" style="left:102px;top:51px" aria-label="Right">▶</button>
+        <button type="button" class="pad-btn" data-d="down" style="left:51px;top:102px" aria-label="Down">▼</button>
       </div>
       <div id="panelHost"></div>
       <div id="toastHost"></div>
@@ -83,7 +95,16 @@ export class UIRoot {
     this.soundBtn = this.root.querySelector('#btnSound')!;
     this.panelHost = this.root.querySelector('#panelHost')!;
 
+    // Always enable touch UI on coarse / touch devices (broad detection)
     if (IS_TOUCH) document.body.classList.add('touch');
+    // Also show d-pad whenever maxTouchPoints suggests a phone/tablet
+    if (
+      typeof navigator !== 'undefined' &&
+      navigator.maxTouchPoints > 0 &&
+      window.matchMedia('(max-width: 900px)').matches
+    ) {
+      document.body.classList.add('touch');
+    }
 
     this.root.querySelector('#actConnect')!.addEventListener('click', () => this.handlers.onConnect());
     this.root.querySelector('#actTalk')!.addEventListener('click', () => this.handlers.onTalk());
@@ -93,29 +114,113 @@ export class UIRoot {
     this.root.querySelector('#btnSound')!.addEventListener('click', () => this.handlers.onSound());
     this.root.querySelector('#btnWho')!.addEventListener('click', () => this.handlers.onConnect());
 
-    const pad = this.root.querySelector('#pad')!;
-    const setDir = (d: string | null) => this.handlers.onPad(d);
-    pad.querySelectorAll('b[data-d]').forEach((el) => {
-      const dir = (el as HTMLElement).dataset.d!;
-      const on = (e: Event) => {
+    this.bindPad();
+  }
+
+  /** Robust multi-direction d-pad for iOS Safari */
+  private bindPad() {
+    const pad = this.root.querySelector('#pad') as HTMLElement;
+    if (!pad) return;
+
+    const press = (dir: string, el: HTMLElement, pointerId?: number) => {
+      this.padHeld.add(dir);
+      el.classList.add('on');
+      if (pointerId != null && el.setPointerCapture) {
+        try {
+          el.setPointerCapture(pointerId);
+        } catch {
+          /* older Safari */
+        }
+      }
+      this.emitPad();
+    };
+    const release = (dir: string, el: HTMLElement) => {
+      this.padHeld.delete(dir);
+      el.classList.remove('on');
+      this.emitPad();
+    };
+    const releaseAll = () => {
+      pad.querySelectorAll('.pad-btn.on').forEach((b) => b.classList.remove('on'));
+      this.padHeld.clear();
+      this.emitPad();
+    };
+
+    pad.querySelectorAll<HTMLElement>('.pad-btn[data-d]').forEach((el) => {
+      const dir = el.dataset.d!;
+
+      // Pointer events (modern)
+      el.addEventListener(
+        'pointerdown',
+        (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          press(dir, el, e.pointerId);
+        },
+        { passive: false }
+      );
+      el.addEventListener(
+        'pointerup',
+        (e) => {
+          e.preventDefault();
+          release(dir, el);
+        },
+        { passive: false }
+      );
+      el.addEventListener('pointercancel', () => release(dir, el));
+      el.addEventListener('lostpointercapture', () => release(dir, el));
+
+      // Touch fallback (iOS quirks)
+      el.addEventListener(
+        'touchstart',
+        (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          press(dir, el);
+        },
+        { passive: false }
+      );
+      el.addEventListener(
+        'touchend',
+        (e) => {
+          e.preventDefault();
+          release(dir, el);
+        },
+        { passive: false }
+      );
+      el.addEventListener(
+        'touchcancel',
+        () => release(dir, el),
+        { passive: false }
+      );
+
+      // Mouse (desktop testing with touch class forced)
+      el.addEventListener('mousedown', (e) => {
         e.preventDefault();
-        el.classList.add('on');
-        setDir(dir);
-      };
-      const off = (e: Event) => {
-        e.preventDefault();
-        el.classList.remove('on');
-        setDir(null);
-      };
-      el.addEventListener('pointerdown', on);
-      el.addEventListener('pointerup', off);
-      el.addEventListener('pointerleave', off);
-      el.addEventListener('pointercancel', off);
+        press(dir, el);
+      });
+      el.addEventListener('mouseup', () => release(dir, el));
+      el.addEventListener('mouseleave', () => {
+        if (this.padHeld.has(dir)) release(dir, el);
+      });
+    });
+
+    // If finger slides off pad entirely
+    window.addEventListener('blur', releaseAll);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) releaseAll();
     });
   }
 
   setOverlay(on: boolean) {
     document.body.classList.toggle('overlay', on);
+    // Always clear movement when a panel opens
+    if (on) {
+      this.padHeld.clear();
+      this.root
+        .querySelectorAll('.pad-btn.on')
+        .forEach((b) => b.classList.remove('on'));
+      this.emitPad();
+    }
   }
 
   updateHud(g: GameSave, zone: string, goal: string, peers = 0) {

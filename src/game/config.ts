@@ -135,6 +135,11 @@ export const CREA_SHEET: Record<string, string> = {
   b_algo: 'b_algo',
 };
 
+/** Broad touch detection — iOS often fails the strict hover:none+coarse pair alone */
 export const IS_TOUCH =
   typeof window !== 'undefined' &&
-  window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+  (window.matchMedia('(hover: none) and (pointer: coarse)').matches ||
+    window.matchMedia('(pointer: coarse)').matches ||
+    (typeof navigator !== 'undefined' &&
+      navigator.maxTouchPoints > 0 &&
+      /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)));

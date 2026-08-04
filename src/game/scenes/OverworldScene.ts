@@ -53,13 +53,20 @@ export class OverworldScene extends Phaser.Scene {
   walkable!: (tx: number, ty: number) => boolean;
   ents: Ent[] = [];
   peerMap = new Map<string, PeerVisual>();
-  padDir: string | null = null;
+  padX = 0;
+  padY = 0;
+  stickX = 0;
+  stickY = 0;
   zoneName = 'Profile Plaza';
   zoneId = 'plaza';
   blocked = false;
   app!: GameApp;
   netAcc = 0;
   facing = 'down';
+  /** Ignore auto-NPC dialogue for a moment after load so players can move */
+  interactGrace = 90;
+  private stickActive = false;
+  private stickOrigin = { x: 0, y: 0 };
 
   constructor() {
     super('overworld');
@@ -322,16 +329,79 @@ export class OverworldScene extends Phaser.Scene {
       };
     });
 
-    // Input
-    this.cursors = this.input.keyboard!.createCursorKeys();
-    this.wasd = this.input.keyboard!.addKeys('W,A,S,D,E,SPACE,Z,J,M,ESC,C,T') as any;
+    // Input — keyboard may be null on pure-touch devices
+    const deadKey = { isDown: false };
+    if (this.input.keyboard) {
+      this.cursors = this.input.keyboard.createCursorKeys();
+      this.wasd = this.input.keyboard.addKeys(
+        'W,A,S,D,E,SPACE,Z,J,M,ESC,C,T'
+      ) as any;
+      this.input.keyboard.on('keydown-SPACE', () => this.app?.advanceDialogue());
+      this.input.keyboard.on('keydown-E', () => this.app?.advanceDialogue());
+      this.input.keyboard.on('keydown-Z', () => this.app?.openPuzzles());
+      this.input.keyboard.on('keydown-J', () => this.app?.openJournal());
+      this.input.keyboard.on('keydown-ESC', () => this.app?.openPause());
+      this.input.keyboard.on('keydown-C', () => this.app?.openConnect());
+    } else {
+      this.cursors = {
+        left: deadKey,
+        right: deadKey,
+        up: deadKey,
+        down: deadKey,
+        space: deadKey,
+        shift: deadKey,
+      } as any;
+      this.wasd = {
+        W: deadKey,
+        A: deadKey,
+        S: deadKey,
+        D: deadKey,
+        E: deadKey,
+        SPACE: deadKey,
+        Z: deadKey,
+        J: deadKey,
+        M: deadKey,
+        ESC: deadKey,
+        C: deadKey,
+        T: deadKey,
+      } as any;
+    }
 
-    this.input.keyboard!.on('keydown-SPACE', () => this.app?.advanceDialogue());
-    this.input.keyboard!.on('keydown-E', () => this.app?.advanceDialogue());
-    this.input.keyboard!.on('keydown-Z', () => this.app?.openPuzzles());
-    this.input.keyboard!.on('keydown-J', () => this.app?.openJournal());
-    this.input.keyboard!.on('keydown-ESC', () => this.app?.openPause());
-    this.input.keyboard!.on('keydown-C', () => this.app?.openConnect());
+    // Virtual stick on left half of canvas (backup if HTML d-pad fails)
+    this.input.addPointer(2);
+    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
+      if (this.blocked) return;
+      if (document.body.classList.contains('overlay')) return;
+      // left 42% of screen only — leave right for action buttons
+      if (p.x > this.scale.width * 0.42) return;
+      // avoid far bottom-right action column
+      this.stickActive = true;
+      this.stickOrigin.x = p.x;
+      this.stickOrigin.y = p.y;
+      this.stickX = 0;
+      this.stickY = 0;
+    });
+    this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
+      if (!this.stickActive || !p.isDown) return;
+      const dx = p.x - this.stickOrigin.x;
+      const dy = p.y - this.stickOrigin.y;
+      const dead = 12;
+      const max = 48;
+      const nx = Phaser.Math.Clamp(dx / max, -1, 1);
+      const ny = Phaser.Math.Clamp(dy / max, -1, 1);
+      this.stickX = Math.abs(dx) < dead ? 0 : nx;
+      this.stickY = Math.abs(dy) < dead ? 0 : ny;
+    });
+    const endStick = () => {
+      this.stickActive = false;
+      this.stickX = 0;
+      this.stickY = 0;
+    };
+    this.input.on('pointerup', endStick);
+    this.input.on('pointerupoutside', endStick);
+
+    // Grace: don't auto-talk for ~1.5s so spawn next to NPCs doesn't freeze control
+    this.interactGrace = 90;
 
     // Intro
     if (this.registry.get('intro')) {
@@ -361,8 +431,9 @@ export class OverworldScene extends Phaser.Scene {
     }
   }
 
-  setPadDir(d: string | null) {
-    this.padDir = d;
+  setPadAxes(x: number, y: number) {
+    this.padX = x;
+    this.padY = y;
   }
 
   isBlocked() {
@@ -370,7 +441,14 @@ export class OverworldScene extends Phaser.Scene {
   }
   setBlocked(b: boolean) {
     this.blocked = b;
-    if (b) this.player.setVelocity(0, 0);
+    if (b && this.player) {
+      this.player.setVelocity(0, 0);
+      this.padX = 0;
+      this.padY = 0;
+      this.stickX = 0;
+      this.stickY = 0;
+      this.stickActive = false;
+    }
   }
 
   getSave() {
@@ -462,32 +540,39 @@ export class OverworldScene extends Phaser.Scene {
   }
 
   update(_t: number, dtMs: number) {
-    if (this.blocked || !this.player) return;
+    if (!this.player) return;
+    if (this.interactGrace > 0) this.interactGrace -= dtMs / 16.67;
+    if (this.blocked) {
+      this.player.setVelocity(0, 0);
+      return;
+    }
     const dt = Math.min(2, dtMs / 16.67);
     let vx = 0,
       vy = 0;
-    const speed = PLAYER_SPEED * 60;
+    // Slightly snappier on touch devices
+    const speed = PLAYER_SPEED * 60 * (isCoarsePointer() ? 1.15 : 1);
 
-    if (this.cursors.left.isDown || this.wasd.A.isDown || this.padDir === 'left')
-      vx = -1;
-    else if (
-      this.cursors.right.isDown ||
-      this.wasd.D.isDown ||
-      this.padDir === 'right'
-    )
-      vx = 1;
-    if (this.cursors.up.isDown || this.wasd.W.isDown || this.padDir === 'up')
-      vy = -1;
-    else if (
-      this.cursors.down.isDown ||
-      this.wasd.S.isDown ||
-      this.padDir === 'down'
-    )
-      vy = 1;
+    // Keyboard
+    if (this.cursors?.left?.isDown || this.wasd?.A?.isDown) vx -= 1;
+    if (this.cursors?.right?.isDown || this.wasd?.D?.isDown) vx += 1;
+    if (this.cursors?.up?.isDown || this.wasd?.W?.isDown) vy -= 1;
+    if (this.cursors?.down?.isDown || this.wasd?.S?.isDown) vy += 1;
 
-    if (vx && vy) {
-      vx *= 0.707;
-      vy *= 0.707;
+    // HTML d-pad (can be diagonal)
+    if (this.padX || this.padY) {
+      vx = this.padX;
+      vy = this.padY;
+    }
+    // Canvas virtual stick overrides if stronger
+    if (this.stickActive && (this.stickX || this.stickY)) {
+      vx = this.stickX;
+      vy = this.stickY;
+    }
+
+    const len = Math.hypot(vx, vy);
+    if (len > 1) {
+      vx /= len;
+      vy /= len;
     }
 
     // collision sample
@@ -587,7 +672,7 @@ export class OverworldScene extends Phaser.Scene {
         e.sprite.x,
         e.sprite.y
       );
-      if (d < 42 && e.arm !== false) {
+      if (this.interactGrace <= 0 && d < 42 && e.arm !== false) {
         // fully beaten champions don't re-interrupt movement
         if (
           e.k === 'foe' &&
