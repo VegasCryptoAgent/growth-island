@@ -54,6 +54,13 @@ export class BootScene extends Phaser.Scene {
       'portrait_lia',
       `assets/generated/hub/portrait-lia.png?v=${HUB_V}`
     );
+    // Tiled island map — art + collision 1:1
+    const MAP_V = '20260804t';
+    this.load.image(
+      'island-tiles',
+      `assets/maps/island-tiles.png?v=${MAP_V}`
+    );
+    this.load.tilemapTiledJSON('island', `assets/maps/island.json?v=${MAP_V}`);
   }
 
   create() {

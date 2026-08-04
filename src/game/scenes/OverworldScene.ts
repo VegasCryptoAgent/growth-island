@@ -75,60 +75,42 @@ export class OverworldScene extends Phaser.Scene {
    * Paint island ground with run-length Graphics fills (not per-tile sprites/textures).
    * Keeps create() under ~50ms so mobile never freezes on house-select.
    */
+  /** Bright v34-style island ground (zone-tinted grass, sand paths, sea) */
   paintGround(grid: Uint8Array) {
-    // Fast 1px/tile texture scaled by GPU — looks polished, stays mobile-safe
     const worldW = MAP_W * TILE;
     const worldH = MAP_H * TILE;
+    // 2px/tile for smoother look, still mobile-safe
+    const scale = 2;
     const mini = document.createElement('canvas');
-    mini.width = MAP_W;
-    mini.height = MAP_H;
+    mini.width = MAP_W * scale;
+    mini.height = MAP_H * scale;
     const ctx = mini.getContext('2d')!;
-    const img = ctx.createImageData(MAP_W, MAP_H);
-    const d = img.data;
-    for (let i = 0; i < grid.length; i++) {
-      const t = grid[i];
-      const tx = i % MAP_W;
-      const ty = (i / MAP_W) | 0;
-      let r = 31,
-        g = 134,
-        b = 196;
-      if (t === 0) {
-        if ((tx + ty) % 7 === 0) {
-          r = 58;
-          g = 168;
-          b = 212;
+    for (let ty = 0; ty < MAP_H; ty++) {
+      for (let tx = 0; tx < MAP_W; tx++) {
+        const t = grid[ty * MAP_W + tx];
+        const z = zoneAt(tx, ty);
+        let col = '#1F86C4'; // deep sea
+        if (t === 0) {
+          col = (tx + ty) % 5 === 0 ? '#5BCDE8' : '#6FD8EE';
+        } else if (t === 4) {
+          col = '#F4E2B0'; // beach
+        } else if (t === 3) {
+          col = '#E3CE96'; // path
+        } else if (t === 2) {
+          col = '#8A9A6A'; // rock
+        } else if (t === 1) {
+          col = (z as any)?.g || '#89DA8F';
+          if ((tx * 3 + ty * 7) % 3 === 1) col = (z as any)?.g2 || '#77CD80';
         }
-      } else if (t === 1) {
-        r = 244;
-        g = 226;
-        b = 176;
-      } else if (t === 3) {
-        r = 201;
-        g = 168;
-        b = 108;
-      } else {
-        const v = (tx * 3 + ty * 7) % 3;
-        if (v === 0) {
-          r = 111;
-          g = 207;
-          b = 118;
-        } else if (v === 1) {
-          r = 137;
-          g = 218;
-          b = 143;
-        } else {
-          r = 95;
-          g = 191;
-          b = 104;
+        ctx.fillStyle = col;
+        ctx.fillRect(tx * scale, ty * scale, scale, scale);
+        // micro sparkle on grass
+        if (t === 1 && (tx + ty * 3) % 11 === 0) {
+          ctx.fillStyle = 'rgba(255,255,255,.35)';
+          ctx.fillRect(tx * scale, ty * scale, 1, 1);
         }
       }
-      const o = i * 4;
-      d[o] = r;
-      d[o + 1] = g;
-      d[o + 2] = b;
-      d[o + 3] = 255;
     }
-    ctx.putImageData(img, 0, 0);
     if (this.textures.exists('gi_ground')) this.textures.remove('gi_ground');
     this.textures.addCanvas('gi_ground', mini);
     this.add
@@ -142,87 +124,63 @@ export class OverworldScene extends Phaser.Scene {
     (window as any).__GI_OW_ERR = null;
     console.log('[overworld] create start');
 
-    document.body.classList.remove('on-title');
+    document.body.classList.remove('on-title', 'cyber-hub');
     document.getElementById('gi-title-ui')?.remove();
-    document.body.classList.add('in-game', 'touch', 'cyber-hub');
+    document.body.classList.add('in-game', 'touch', 'gi-classic');
 
     this.app = (this.game.registry.get('app') as GameApp) || (window as any).__GI_APP;
     console.log('[overworld] gen map');
     const { grid, walkable: genWalk } = generateIsland();
     this.grid = grid;
-    // Free exploration: walk all land (grass/path/beach). Only deep sea is blocked.
+    // v34 solid: sea(0) + rock(2) block; grass/path/beach walk
     this.walkable = (tx: number, ty: number) => {
       if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return false;
-      const t = grid[ty * MAP_W + tx];
-      return t === 1 || t === 2 || t === 3 || genWalk(tx, ty);
+      return genWalk(tx, ty);
     };
 
     const worldW = MAP_W * TILE;
     const worldH = MAP_H * TILE;
     this.cameras.main.setBounds(0, 0, worldW, worldH);
-    this.cameras.main.setZoom(cameraZoom() * 0.88);
-    this.cameras.main.setBackgroundColor('#1f86c4');
+    this.cameras.main.setZoom(cameraZoom());
+    this.cameras.main.setBackgroundColor('#BFEAF5');
     console.log('[overworld] camera ok');
 
-    // REAL GAME WORLD: procedural island ground (walkable map), NOT one stretched photo
+    // Bright island like v34 demos — full walkable map, not a static photo
     try {
       this.paintGround(grid);
     } catch {
       this.add
-        .rectangle(worldW / 2, worldH / 2, worldW, worldH, 0x0a2038)
+        .rectangle(worldW / 2, worldH / 2, worldW, worldH, 0xbfeaf5)
         .setDepth(0);
     }
-    // Zone color tints so districts feel distinct while exploring
+    // Zone labels (classic white cards)
     for (const z of ZONES as any[]) {
       const cx = (z.x + z.w / 2) * TILE;
-      const cy = (z.y + z.h / 2) * TILE;
-      const col = Phaser.Display.Color.HexStringToColor(z.a || '#0A66C2').color;
       this.add
-        .circle(cx, cy, Math.min(z.w, z.h) * TILE * 0.42, col, 0.12)
-        .setDepth(1);
-      this.add
-        .text(cx, z.y * TILE + 18, z.n, {
+        .text(cx, z.y * TILE + 14, z.n, {
           fontFamily: 'system-ui',
-          fontSize: '12px',
-          color: '#123253',
+          fontSize: '11px',
+          color: z.a || '#0A66C2',
           fontStyle: 'bold',
-          backgroundColor: '#ffffffcc',
-          padding: { x: 6, y: 3 },
+          backgroundColor: '#ffffffee',
+          padding: { x: 8, y: 4 },
         })
         .setOrigin(0.5)
         .setDepth(40);
     }
-    // Hub art is a LANDMARK in Profile Plaza — not the whole board
-    if (this.textures.exists('hub_bg')) {
-      const hx = 52 * TILE;
-      const hy = 36 * TILE;
+    // Landmark props — simple placed markers at zone centres
+    for (const z of ZONES as any[]) {
+      const cx = (z.x + z.w / 2) * TILE;
+      const cy = (z.y + z.h / 2) * TILE;
       this.add
-        .image(hx, hy, 'hub_bg')
-        .setDisplaySize(22 * TILE, 14 * TILE)
-        .setAlpha(0.92)
-        .setDepth(2);
+        .circle(cx, cy - 8, 10, Phaser.Display.Color.HexStringToColor(z.a || '#0A66C2').color)
+        .setStrokeStyle(2, 0x123253)
+        .setDepth(cy);
+      this.add
+        .rectangle(cx, cy + 6, 18, 10, 0xffffff, 0.9)
+        .setStrokeStyle(2, 0x123253)
+        .setDepth(cy + 1);
     }
-    // Neon plaza rings
-    {
-      const g = this.add.graphics().setDepth(3);
-      const cx = 52 * TILE;
-      const cy = 38 * TILE;
-      g.lineStyle(3, 0x2de2e6, 0.45);
-      g.strokeCircle(cx, cy, 100);
-      g.lineStyle(2, 0xff4fd8, 0.35);
-      g.strokeCircle(cx + 36, cy - 16, 56);
-    }
-    this.add
-      .text(52 * TILE, 30 * TILE, 'NETWORKING HUB', {
-        fontFamily: 'system-ui',
-        fontSize: '13px',
-        color: '#5ef0ff',
-        fontStyle: 'bold',
-        backgroundColor: '#0a1628cc',
-        padding: { x: 8, y: 4 },
-      })
-      .setOrigin(0.5)
-      .setDepth(50);
 
     // Player (Cory) — always spawn on a guaranteed open plaza tile
     let px = 52 * TILE + TILE / 2;

@@ -222,14 +222,14 @@ export class GameApp {
         <div class="card pop" style="max-width:440px;padding:24px;text-align:center">
           <p style="font-size:11px;letter-spacing:.3em;font-weight:900;color:#0A66C2">WELCOME</p>
           <p style="font-size:18px;font-weight:800;line-height:1.45;margin:12px 0">
-            This island turns network visibility into actual business.
-            Coaches hand you things you can use on the Mainland today.
+            This island turns LinkedIn visibility into actual business.
+            Coaches here hand you things you can use today.
           </p>
           <p class="muted" style="font-weight:700;font-size:13px;margin-bottom:16px">
-            Desktop: click &amp; hold with the mouse to walk. Mobile: drag your finger.
-            Walk up to a coach and press Talk. Your first Signal is already with you.
+            D-pad or drag to walk. Talk near coaches. Hub opens every feature.
+            Your first Signal is already with you.
           </p>
-          <button type="button" class="btn" id="introGo" style="width:100%">Step onto the island</button>
+          <button type="button" class="btn" id="introGo" style="width:100%">Continue</button>
         </div>
       </div>`);
     const go = () => {

@@ -10,14 +10,19 @@
   --cyber-muted:#7eb6c9;
 }
 
-body.cyber-hub{
+/* Cyber theme only when explicitly enabled — classic bright is default */
+body.cyber-hub:not(.gi-classic){
   background:var(--cyber-bg);
   color:var(--cyber-text);
 }
 
-body.cyber-hub #app,
-body.cyber-hub #game-root{
+body.cyber-hub:not(.gi-classic) #app,
+body.cyber-hub:not(.gi-classic) #game-root{
   background:#061018;
+}
+body.gi-classic{
+  background:#BFEAF5;
+  color:#123253;
 }
 
 /* ===== Cyber HUD ===== */

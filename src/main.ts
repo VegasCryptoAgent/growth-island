@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import './styles/main.css';
+/* classic LinkedIn-bright theme is primary; cyber.css optional accents kept light */
 import './styles/cyber.css';
 import { BootScene } from './game/scenes/BootScene';
 import { TitleScene } from './game/scenes/TitleScene';
@@ -67,7 +68,7 @@ try {
   game = new Phaser.Game({
     type: Phaser.CANVAS,
     parent: gameRoot,
-    backgroundColor: COLORS.sky,
+    backgroundColor: 0xbfeaf5,
     scale: {
       mode: Phaser.Scale.RESIZE,
       width: startW,

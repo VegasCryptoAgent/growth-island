@@ -91,21 +91,21 @@ export class TitleScene extends Phaser.Scene {
     const existing = loadSave();
     host.innerHTML = `
       <div class="title-card card">
-        <div class="title-emoji">🌐</div>
-        <p class="title-kicker">NETWORKING HUB</p>
+        <div class="title-emoji">🏝️</div>
+        <p class="title-kicker">A GROWTH ADVENTURE</p>
         <h1 class="title-h1">Growth Island</h1>
-        <p class="title-sub">walk · connect · grow</p>
+        <p class="title-sub">a networking game</p>
         <p class="title-ver">v${APP_VERSION}</p>
         <button type="button" class="btn title-btn" id="giStart">Set sail</button>
         ${
           existing
-            ? `<button type="button" class="btn2 title-btn" id="giContinue">Continue journey</button>`
+            ? `<button type="button" class="btn2 title-btn" id="giContinue">Continue your journey</button>`
             : ''
         }
         <button type="button" class="btnG title-btn" id="giAuth">${
           getToken() ? 'Continue with cloud' : 'Sign in / cloud save'
         }</button>
-        <p class="title-hint">Desktop: click &amp; hold with the mouse to walk · Mobile: drag your finger · Talk to meet coaches</p>
+        <p class="title-hint">D-pad or drag to walk · coaches greet you on approach · Talk to continue · Journal · Hub for every feature</p>
       </div>
     `;
     document.body.appendChild(host);
