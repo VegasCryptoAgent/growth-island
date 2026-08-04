@@ -317,7 +317,8 @@ export class GameApp {
   hubConnect(e: any) {
     if (!this.scene) return;
     const g = this.save();
-    if (!g.connections.includes(e.id)) {
+    const firstConnect = !g.connections.includes(e.id);
+    if (firstConnect) {
       g.connections.push(e.id);
       addGS(g, 15, 'Connected with ' + (e.n || 'contact'));
       writeSave(g);
@@ -343,13 +344,32 @@ export class GameApp {
       /* */
     }
     sfx.win();
-    this.toast('Connection successful!');
+    this.toast(
+      firstConnect
+        ? 'Connection successful!'
+        : `Already connected with ${e.n || 'them'}`
+    );
     track('hub_connect', { id: e.id });
-    this.ui.clearPanel();
-    this.scene.setBlocked(false);
-    this.dlg = null;
-    this.refreshHud();
-    this.checkQuests();
+    // Still run awards + open workshop/tool so Connect never dead-ends
+    if (this.dlg) {
+      this.dlg.q = [];
+      this.finishDlg();
+    } else {
+      this.ui.clearPanel();
+      this.scene.setBlocked(false);
+      this.refreshHud();
+      this.checkQuests();
+      // Open linked feature even without active dialogue
+      if (e.award && !g.team.includes(e.award)) {
+        this.grantSignal(e.award, 'Learned from ' + e.n);
+      }
+      if (e.game === 'feed') this.openFeed();
+      else if (e.id === 'puzzlehut') this.openPuzzles();
+      else if (e.tool === 'tower') this.openTower();
+      else if (e.tool === 'market') this.openMarket();
+      else if (e.tool === 'proof') this.openTool('forge');
+      else if (e.tool) this.openTool(e.tool);
+    }
   }
 
   /** Wire click + touchend so mobile taps always fire once */
@@ -517,8 +537,20 @@ export class GameApp {
       );
     }
     this.bindTap(this.ui.panelHost.querySelector('#dlgMessage'), () => {
-      this.toast('Message drafted — keep the conversation going offline.');
+      // Real coaching note (not a dead stub)
+      const tip =
+        (e.tipKey && KB[e.tipKey as keyof typeof KB]) ||
+        (e.ask?.[0]?.a?.[0] as string) ||
+        'Write one specific line a peer would forward. Then post it.';
+      const g = this.save();
+      if (tip && !g.tips.includes(tip)) {
+        g.tips.push(tip);
+        addGS(g, 3, 'Message from ' + (e.n || 'coach'));
+        writeSave(g);
+      }
+      this.toast('Coach note saved to Journal');
       sfx.ui();
+      this.refreshHud();
     });
     this.bindTap(this.ui.panelHost.querySelector('#dlgWorkshop'), () => {
       // Jump to finish so tool/game opens
@@ -609,6 +641,7 @@ export class GameApp {
         team: g.team,
         champion,
         items: g.items || 0,
+        house: g.house || 'builder',
       },
       (r) => {
         const sg = this.save();
@@ -651,6 +684,7 @@ export class GameApp {
   openFeed() {
     if (!this.scene) return;
     this.scene.setBlocked(true);
+    const house = this.save().house || undefined;
     openFeedGame(
       this.ui.panelHost,
       (r) => {
@@ -681,7 +715,8 @@ export class GameApp {
       () => {
         this.ui.clearPanel();
         this.scene?.setBlocked(false);
-      }
+      },
+      { house }
     );
     this.ui.setOverlay(true);
   }
@@ -1087,7 +1122,10 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
       <div class="overlay-dim">
         <div class="card pop scroll" style="max-width:520px;width:100%;max-height:90vh;padding:18px">
           <h2 style="margin:0 0 4px">🏪 The Exchange</h2>
-          <p class="muted" style="font-weight:700;font-size:13px">Platform take: 20% on third-party sales. First-party below.</p>
+          <p class="muted" style="font-weight:700;font-size:13px">
+            Browse real products · submit your own offers (20% platform fee).
+            ${!STRIPE.masterclass ? ' Checkout links activate when Stripe is configured.' : ''}
+          </p>
           ${products
             .map(
               (p) => `
@@ -1100,34 +1138,58 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
               ${
                 p.link
                   ? `<a class="btn" style="display:block;text-align:center;text-decoration:none;margin-top:8px" href="${p.link}" target="_blank" rel="noopener">Checkout</a>`
-                  : `<button class="btn2" style="width:100%;margin-top:8px;opacity:.7" disabled>Checkout not connected</button>`
+                  : `<button type="button" class="btn" data-interest="${p.id}" style="width:100%;margin-top:8px">Save interest (+5 GS)</button>`
               }
             </div>`
             )
             .join('')}
           <div class="card" style="padding:14px;margin-top:8px">
             <div style="font-weight:900;margin-bottom:6px">Sell on The Exchange</div>
-            <p class="muted" style="font-size:12px;font-weight:700">Submit an offer for review. 20% platform fee on sales.</p>
+            <p class="muted" style="font-size:12px;font-weight:700">Submit an offer for review. Sign in required. 20% platform fee on sales.</p>
             <input type="text" id="sellName" placeholder="Offer title" style="margin:6px 0"/>
             <input type="text" id="sellPrice" placeholder="Price USD" style="margin:6px 0"/>
             <input type="text" id="sellEmail" placeholder="Contact email" style="margin:6px 0"/>
-            <button class="btn" id="sellGo" style="width:100%;margin-top:8px">Submit for review</button>
+            <button type="button" class="btn" id="sellGo" style="width:100%;margin-top:8px">Submit for review</button>
           </div>
-          <button class="btn2" id="mClose" style="width:100%;margin-top:10px">Close</button>
+          <button type="button" class="btn2" id="mClose" style="width:100%;margin-top:10px">Close</button>
         </div>
       </div>`);
-    this.ui.panelHost.querySelector('#mClose')!.addEventListener('click', () => {
+    this.bindTap(this.ui.panelHost.querySelector('#mClose'), () => {
       this.ui.clearPanel();
       this.scene?.setBlocked(false);
       this.refreshHud();
       this.checkQuests();
     });
-    this.ui.panelHost.querySelector('#sellGo')!.addEventListener('click', async () => {
+    this.ui.panelHost.querySelectorAll('[data-interest]').forEach((b) =>
+      this.bindTap(b, () => {
+        const id = (b as HTMLElement).dataset.interest!;
+        const sg = this.save();
+        const key = 'interest_' + id;
+        if (sg.sq[key]) {
+          this.toast('Interest already saved — watch for checkout soon');
+          return;
+        }
+        sg.sq[key] = true;
+        addGS(sg, 5, 'Market interest: ' + id);
+        writeSave(sg);
+        this.toast('Interest saved · +5 GS');
+        sfx.win();
+        this.refreshHud();
+        (b as HTMLElement).textContent = 'Interest saved ✓';
+        (b as HTMLElement).setAttribute('disabled', 'true');
+      })
+    );
+    this.bindTap(this.ui.panelHost.querySelector('#sellGo'), async () => {
       const n = (this.ui.panelHost.querySelector('#sellName') as HTMLInputElement).value;
       const p = (this.ui.panelHost.querySelector('#sellPrice') as HTMLInputElement).value;
       const em = (this.ui.panelHost.querySelector('#sellEmail') as HTMLInputElement).value;
       if (!n || !p || !em) return this.toast('Fill all fields');
-      if (!getToken()) return this.toast('Sign in to submit offers');
+      if (!getToken()) {
+        this.toast('Sign in to submit offers');
+        this.ui.clearPanel();
+        this.openAuth(() => this.openMarket());
+        return;
+      }
       try {
         await api.submitSeller(n, p, em);
         emitEvent(this.save(), 'sell_submit', {
@@ -1152,17 +1214,25 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
     const puzzlesToday = Object.values(g.puzzles || {}).filter(
       (p) => p.d === dayKey()
     ).length;
+    const daily = g.daily;
+    const feedBest = g.games?.feed?.best || 0;
+    const dailyLine = daily
+      ? daily.done
+        ? `✅ Daily Feed challenge complete (${daily.target.toLocaleString()})`
+        : `🎯 Daily Feed: ${feedBest.toLocaleString()} / ${daily.target.toLocaleString()} score`
+      : '🎯 Daily challenge unlocks when you return tomorrow';
     this.ui.showPanel(`
       <div class="overlay-dim">
         <div class="card pop scroll" style="max-width:520px;width:100%;max-height:90vh;padding:18px">
           <div style="display:flex;justify-content:space-between;align-items:center">
             <h2 style="margin:0">Journal</h2>
-            <button class="btn2" id="jClose">Close</button>
+            <button type="button" class="btn2" id="jClose">Close</button>
           </div>
           <div class="card2" style="padding:14px;margin:12px 0">
             <div style="font-size:40px;font-weight:900;color:#0A66C2">${g.gs}</div>
-            <div style="font-weight:900">${rankOf(g.gs)} · 🔥 ${g.streak}-day streak</div>
+            <div style="font-weight:900">${rankOf(g.gs)} · 🔥 ${g.streak}-day streak · House: ${g.house || '—'}</div>
             <div class="muted" style="font-size:12px;font-weight:700">${puzzlesToday}/3 puzzles · ${g.team.length}/7 Signals · ${g.scrolls.length}/12 notes · best hook ${g.best}</div>
+            <div style="font-weight:800;font-size:13px;margin-top:8px;color:#0A66C2">${dailyLine}</div>
           </div>
           <h3>Side quests</h3>
           ${(SQ as any[])

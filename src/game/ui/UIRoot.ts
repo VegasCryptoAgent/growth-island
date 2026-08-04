@@ -93,7 +93,7 @@ export class UIRoot {
           <button type="button" class="cyber-act" id="btnJournal" title="Journal"><span>📓</span><b>Journal</b></button>
           <button type="button" class="cyber-act" id="btnMenu" title="Menu"><span>☰</span><b>Menu</b></button>
           <button type="button" class="cyber-act" id="btnSound" title="Sound"><span>🔊</span></button>
-          <button type="button" class="cyber-act" id="btnWho" title="Who" style="display:none"><span>👥</span><span id="whoCount">0</span></button>
+          <button type="button" class="cyber-act" id="btnWho" title="Online players"><span>👥</span><b id="whoCount">0</b></button>
         </div>
         <div id="goalTxt" class="hidden">Explore</div>
         <div id="zoneName" class="hidden">Networking Hub</div>
@@ -175,6 +175,11 @@ export class UIRoot {
     this.zoneName.textContent = zone || 'Networking Hub';
     this.goalTxt.textContent = goal;
     this.whoCount.textContent = String(peers);
+    const whoBtn = this.root.querySelector('#btnWho') as HTMLElement | null;
+    if (whoBtn) {
+      whoBtn.style.opacity = peers > 0 ? '1' : '0.75';
+      whoBtn.title = peers > 0 ? `${peers} online` : 'Multiplayer / Hub';
+    }
     this.soundBtn.innerHTML = g.sound ? '<span>🔊</span>' : '<span>🔇</span>';
 
     // Live-ish stats

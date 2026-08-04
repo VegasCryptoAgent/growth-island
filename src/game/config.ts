@@ -1,6 +1,6 @@
 /** Production configuration & constants */
 export const APP_VERSION =
-  (import.meta.env.VITE_APP_VERSION as string) || '1.1.0';
+  (import.meta.env.VITE_APP_VERSION as string) || '1.2.0';
 
 export const SAVE_KEY = 'growth_island_save_v20';
 export const SAVE_VERSION = 20;

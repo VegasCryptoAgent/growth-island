@@ -48,6 +48,7 @@ export function openBattle(
   foe: FoeData,
   opts: {
     activeId: string;
+    house?: string;
     team: string[];
     champion: boolean;
     items: number;
@@ -56,6 +57,10 @@ export function openBattle(
   onClose: () => void
 ) {
   const me0 = monOf(opts.activeId || opts.team[0] || 'proof');
+  const house = opts.house || 'builder';
+  // House perks (production-ready, matches house picker claims)
+  const spMult = house === 'builder' ? 1.25 : 1; // Builders: specials 25% harder
+  const healPct = house === 'connector' ? 0.55 : 0.4; // Connectors: better tonic
   const mult = opts.champion ? 1.55 : 1;
   let meHp = me0.hp;
   const meMax = me0.hp;
@@ -163,9 +168,9 @@ export function openBattle(
         return;
       }
       items--;
-      const h = Math.round(meMax * 0.4);
+      const h = Math.round(meMax * healPct);
       meHp = Math.min(meMax, meHp + h);
-      log = `Focus Tonic — recovered ${h} HP.`;
+      log = `Focus Tonic — recovered ${h} HP${house === 'connector' ? ' (Connector perk)' : ''}.`;
       sfx.pick();
       paint();
       setTimeout(foeTurn, 450);
@@ -174,9 +179,9 @@ export function openBattle(
     let dmg = 0;
     if (a === 'sp') {
       dmg = Math.round(
-        me0.sp.p * (0.9 + Math.random() * 0.3) + me0.atk * 0.35
+        (me0.sp.p * (0.9 + Math.random() * 0.3) + me0.atk * 0.35) * spMult
       );
-      log = `${me0.n} uses ${me0.sp.n}! ${dmg} damage.`;
+      log = `${me0.n} uses ${me0.sp.n}! ${dmg} damage${spMult > 1 ? ' (Builder perk)' : ''}.`;
       sfx.combo();
     } else {
       dmg = Math.round(me0.atk * (0.85 + Math.random() * 0.4));

@@ -320,12 +320,24 @@ export class OverworldScene extends Phaser.Scene {
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();
       this.wasd = this.input.keyboard.addKeys('W,A,S,D,E,SPACE,Z,J,M,ESC,C,T') as any;
-      this.input.keyboard.on('keydown-SPACE', () => this.app?.advanceDialogue());
-      this.input.keyboard.on('keydown-E', () => this.app?.advanceDialogue());
+      // Space / E: talk when idle, advance when in dialogue
+      this.input.keyboard.on('keydown-SPACE', () => this.app?.talkOrAdvance());
+      this.input.keyboard.on('keydown-E', () => this.app?.talkOrAdvance());
       this.input.keyboard.on('keydown-Z', () => this.app?.openPuzzles());
       this.input.keyboard.on('keydown-J', () => this.app?.openJournal());
-      this.input.keyboard.on('keydown-ESC', () => this.app?.openPause());
+      this.input.keyboard.on('keydown-ESC', () => {
+        // Escape closes open panels first, then pause
+        if (document.body.classList.contains('overlay') || this.blocked) {
+          this.app?.ui?.clearPanel?.();
+          this.setBlocked(false);
+          this.app && ((this.app as any).dlg = null);
+          return;
+        }
+        this.app?.openPause();
+      });
       this.input.keyboard.on('keydown-C', () => this.app?.openConnect());
+      this.input.keyboard.on('keydown-T', () => this.app?.talkOrAdvance());
+      this.input.keyboard.on('keydown-H', () => this.app?.openConnect());
     } else {
       this.cursors = {
         left: deadKey,
@@ -442,6 +454,15 @@ export class OverworldScene extends Phaser.Scene {
     });
 
     const today = dayKey();
+    // Always ensure a daily challenge exists for the current day
+    if (!this.save.daily || this.save.daily.day !== today) {
+      this.save.daily = {
+        game: 'feed',
+        target: 12000,
+        day: today,
+        done: false,
+      };
+    }
     if (this.save?.lastDay !== today) {
       const y = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
       const prev = this.save.lastDay;
@@ -898,13 +919,21 @@ export class OverworldScene extends Phaser.Scene {
   }
 
   objectiveText(): string {
-    if (this.save.team.length < 2) return 'Explore — collect Signals';
-    if (!this.save.tools.audit) return 'Find Ivy in Profile Plaza';
-    if (!this.save.games.feed?.best) return 'Play The Feed with Rell';
-    if (Object.keys(this.save.puzzles || {}).length < 1)
-      return 'Try a daily puzzle';
-    if (this.save.team.length < 7)
-      return `Collect Signals (${this.save.team.length}/7)`;
-    return 'Keep growing — Signal Tower hooks';
+    const g = this.save;
+    const daily = g.daily;
+    if (daily && !daily.done && daily.day) {
+      const best = g.games?.feed?.best || 0;
+      return `Daily: Feed ${best.toLocaleString()}/${daily.target.toLocaleString()}`;
+    }
+    if (g.team.length < 2) return 'Explore — collect Signals · Hub for tools';
+    if (!g.tools.audit) return 'Talk to Ivy · Profile Audit';
+    if (!g.games.feed?.best) return 'Play The Feed (Hub → Feed)';
+    const puzzlesToday = Object.values(g.puzzles || {}).filter(
+      (p: any) => p.d === dayKey()
+    ).length;
+    if (puzzlesToday < 3) return `Daily puzzles ${puzzlesToday}/3`;
+    if (g.team.length < 7) return `Collect Signals (${g.team.length}/7)`;
+    if (!g.best || g.best < 70) return 'Score a hook at Signal Tower';
+    return 'Keep growing — Hub has everything';
   }
 }

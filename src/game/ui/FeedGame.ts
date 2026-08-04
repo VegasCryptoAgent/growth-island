@@ -25,12 +25,17 @@ const cardById = (id: string) =>
 export function openFeedGame(
   host: HTMLElement,
   onDone: (r: FeedResult) => void,
-  onClose: () => void
+  onClose: () => void,
+  opts?: { house?: string }
 ) {
   let round = 0;
   let phase: 'play' | 'draft' | 'done' = 'play';
   let energy = 0;
   let maxE = 0;
+  // Broadcasters: +15% score at end; Contrarians: one extra life (skip first loss)
+  const house = opts?.house || '';
+  let contrarianLives = house === 'contrarian' ? 1 : 0;
+  const scoreMult = house === 'caster' ? 1.15 : 1;
   let deck = [
     'we',
     'we',
@@ -188,8 +193,15 @@ export function openFeedGame(
         )
           r.pat -= 1;
         if (r.pat <= 0) {
-          r.state = 'lost';
-          lost++;
+          // Contrarian perk: first full loss is a free life
+          if (contrarianLives > 0) {
+            contrarianLives--;
+            r.pat = 1;
+            msg = 'Contrarian perk — one more chance with this reader.';
+          } else {
+            r.state = 'lost';
+            lost++;
+          }
         }
       }
     });
@@ -205,11 +217,10 @@ export function openFeedGame(
       .filter((r) => r.state === 'won')
       .reduce((s, r) => s + Math.max(0, r.pat), 0);
     const lostN = readers.filter((r) => r.state === 'lost').length;
-    score = Math.max(
-      0,
-      score + conv * 800 + spare * 300 + (round + 1) * 300 - lostN * 650
-    );
-    if (conv === readers.length) score += 2200;
+    let delta =
+      conv * 800 + spare * 300 + (round + 1) * 300 - lostN * 650;
+    if (conv === readers.length) delta += 2200;
+    score = Math.max(0, score + Math.round(delta * scoreMult));
     round++;
     if (round >= (ROUNDS as any[]).length) {
       phase = 'done';
