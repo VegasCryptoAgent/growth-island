@@ -83,21 +83,26 @@ html,body,#app{
   .act{width:48px;height:48px;font-size:18px}
 }
 
-/* touch d-pad — phones/tablets (body.touch) */
-.touch-pad{
+/* touch d-pad — mounted on <body>, above everything except modals */
+.touch-pad,
+#gi-touch-pad{
   display:none;
-  position:fixed;
-  left:12px;
-  bottom:max(18px, env(safe-area-inset-bottom, 0px));
-  width:156px;
-  height:156px;
-  z-index:30;
-  touch-action:none;
-  -webkit-user-select:none;
-  user-select:none;
+  position:fixed !important;
+  left:12px !important;
+  bottom:max(18px, env(safe-area-inset-bottom, 0px)) !important;
+  width:168px !important;
+  height:168px !important;
+  z-index:9999 !important;
+  touch-action:none !important;
+  -webkit-user-select:none !important;
+  user-select:none !important;
+  pointer-events:auto !important;
 }
-body.touch .touch-pad{display:block}
-body.overlay .touch-pad,body.overlay .hud{display:none!important}
+body.touch .touch-pad,
+body.touch #gi-touch-pad{display:block !important}
+body.overlay .touch-pad,
+body.overlay #gi-touch-pad{visibility:hidden !important;pointer-events:none !important}
+body.overlay .hud{display:none!important}
 .touch-pad .pad-btn{
   position:absolute;
   width:52px;

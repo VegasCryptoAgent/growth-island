@@ -1,6 +1,7 @@
 import type { GameSave } from '../systems/Save';
 import { rankOf, nextRankAt } from '../systems/Save';
-import { APP_VERSION, IS_TOUCH } from '../config';
+import { APP_VERSION } from '../config';
+import { MobileInput } from '../systems/MobileInput';
 
 export type UIHandlers = {
   onConnect: () => void;
@@ -9,10 +10,12 @@ export type UIHandlers = {
   onJournal: () => void;
   onMenu: () => void;
   onSound: () => void;
-  /** Active d-pad axes in [-1,0,1] */
-  onPadAxes: (x: number, y: number) => void;
 };
 
+/**
+ * HUD + mobile controls.
+ * D-pad is mounted on document.body (not under pointer-events:none) so iOS always gets hits.
+ */
 export class UIRoot {
   root: HTMLElement;
   hud!: HTMLElement;
@@ -25,6 +28,7 @@ export class UIRoot {
   whoCount!: HTMLElement;
   soundBtn!: HTMLElement;
   panelHost!: HTMLElement;
+  padEl: HTMLElement | null = null;
   handlers: UIHandlers;
   private padHeld = new Set<string>();
 
@@ -41,7 +45,7 @@ export class UIRoot {
     if (this.padHeld.has('right')) x += 1;
     if (this.padHeld.has('up')) y -= 1;
     if (this.padHeld.has('down')) y += 1;
-    this.handlers.onPadAxes(x, y);
+    MobileInput.setAxes(x, y);
   }
 
   private mount() {
@@ -75,12 +79,6 @@ export class UIRoot {
           <button type="button" class="act" id="actPuzzle" title="Puzzles"><span>🧩</span><b>Puzzles</b></button>
         </div>
       </div>
-      <div class="touch-pad" id="pad" aria-label="Movement pad">
-        <button type="button" class="pad-btn" data-d="up" style="left:51px;top:0" aria-label="Up">▲</button>
-        <button type="button" class="pad-btn" data-d="left" style="left:0;top:51px" aria-label="Left">◀</button>
-        <button type="button" class="pad-btn" data-d="right" style="left:102px;top:51px" aria-label="Right">▶</button>
-        <button type="button" class="pad-btn" data-d="down" style="left:51px;top:102px" aria-label="Down">▼</button>
-      </div>
       <div id="panelHost"></div>
       <div id="toastHost"></div>
     `;
@@ -95,116 +93,151 @@ export class UIRoot {
     this.soundBtn = this.root.querySelector('#btnSound')!;
     this.panelHost = this.root.querySelector('#panelHost')!;
 
-    // Always enable touch UI on coarse / touch devices (broad detection)
-    if (IS_TOUCH) document.body.classList.add('touch');
-    // Also show d-pad whenever maxTouchPoints suggests a phone/tablet
-    if (
-      typeof navigator !== 'undefined' &&
-      navigator.maxTouchPoints > 0 &&
-      window.matchMedia('(max-width: 900px)').matches
-    ) {
-      document.body.classList.add('touch');
-    }
+    this.root.querySelector('#actConnect')!.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.handlers.onConnect();
+    });
+    this.root.querySelector('#actTalk')!.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.handlers.onTalk();
+    });
+    this.root.querySelector('#actPuzzle')!.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.handlers.onPuzzle();
+    });
+    this.root.querySelector('#btnJournal')!.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.handlers.onJournal();
+    });
+    this.root.querySelector('#btnMenu')!.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.handlers.onMenu();
+    });
+    this.root.querySelector('#btnSound')!.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.handlers.onSound();
+    });
+    this.root.querySelector('#btnWho')!.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.handlers.onConnect();
+    });
 
-    this.root.querySelector('#actConnect')!.addEventListener('click', () => this.handlers.onConnect());
-    this.root.querySelector('#actTalk')!.addEventListener('click', () => this.handlers.onTalk());
-    this.root.querySelector('#actPuzzle')!.addEventListener('click', () => this.handlers.onPuzzle());
-    this.root.querySelector('#btnJournal')!.addEventListener('click', () => this.handlers.onJournal());
-    this.root.querySelector('#btnMenu')!.addEventListener('click', () => this.handlers.onMenu());
-    this.root.querySelector('#btnSound')!.addEventListener('click', () => this.handlers.onSound());
-    this.root.querySelector('#btnWho')!.addEventListener('click', () => this.handlers.onConnect());
-
-    this.bindPad();
+    // Mount d-pad on <body> so nothing with pointer-events:none can block it
+    this.mountPadOnBody();
   }
 
-  /** Robust multi-direction d-pad for iOS Safari */
-  private bindPad() {
-    const pad = this.root.querySelector('#pad') as HTMLElement;
-    if (!pad) return;
+  private mountPadOnBody() {
+    // remove stale pad from prior HMR
+    document.getElementById('gi-touch-pad')?.remove();
 
-    const press = (dir: string, el: HTMLElement, pointerId?: number) => {
+    const pad = document.createElement('div');
+    pad.id = 'gi-touch-pad';
+    pad.className = 'touch-pad';
+    pad.setAttribute('aria-label', 'Movement pad');
+    pad.innerHTML = `
+      <button type="button" class="pad-btn" data-d="up" style="left:51px;top:0" aria-label="Up">▲</button>
+      <button type="button" class="pad-btn" data-d="left" style="left:0;top:51px" aria-label="Left">◀</button>
+      <button type="button" class="pad-btn" data-d="right" style="left:102px;top:51px" aria-label="Right">▶</button>
+      <button type="button" class="pad-btn" data-d="down" style="left:51px;top:102px" aria-label="Down">▼</button>
+    `;
+    document.body.appendChild(pad);
+    this.padEl = pad;
+
+    // Always show on touch-capable / narrow screens
+    const showPad =
+      (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) ||
+      window.matchMedia('(pointer: coarse)').matches ||
+      window.matchMedia('(max-width: 900px)').matches;
+    if (showPad) {
+      document.body.classList.add('touch');
+      pad.style.display = 'block';
+    }
+
+    const press = (dir: string, el: HTMLElement, e?: Event) => {
+      e?.preventDefault?.();
+      e?.stopPropagation?.();
       this.padHeld.add(dir);
       el.classList.add('on');
-      if (pointerId != null && el.setPointerCapture) {
-        try {
-          el.setPointerCapture(pointerId);
-        } catch {
-          /* older Safari */
-        }
-      }
       this.emitPad();
     };
-    const release = (dir: string, el: HTMLElement) => {
+    const release = (dir: string, el: HTMLElement, e?: Event) => {
+      e?.preventDefault?.();
       this.padHeld.delete(dir);
       el.classList.remove('on');
       this.emitPad();
     };
     const releaseAll = () => {
-      pad.querySelectorAll('.pad-btn.on').forEach((b) => b.classList.remove('on'));
       this.padHeld.clear();
-      this.emitPad();
+      pad.querySelectorAll('.pad-btn.on').forEach((b) => b.classList.remove('on'));
+      MobileInput.clear();
     };
 
     pad.querySelectorAll<HTMLElement>('.pad-btn[data-d]').forEach((el) => {
       const dir = el.dataset.d!;
 
-      // Pointer events (modern)
       el.addEventListener(
         'pointerdown',
         (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          press(dir, el, e.pointerId);
+          press(dir, el, e);
+          try {
+            el.setPointerCapture(e.pointerId);
+          } catch {
+            /* */
+          }
         },
         { passive: false }
       );
       el.addEventListener(
         'pointerup',
-        (e) => {
-          e.preventDefault();
-          release(dir, el);
-        },
+        (e) => release(dir, el, e),
         { passive: false }
       );
-      el.addEventListener('pointercancel', () => release(dir, el));
+      el.addEventListener('pointercancel', (e) => release(dir, el, e));
       el.addEventListener('lostpointercapture', () => release(dir, el));
 
-      // Touch fallback (iOS quirks)
       el.addEventListener(
         'touchstart',
-        (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          press(dir, el);
-        },
+        (e) => press(dir, el, e),
         { passive: false }
       );
       el.addEventListener(
         'touchend',
-        (e) => {
-          e.preventDefault();
-          release(dir, el);
-        },
+        (e) => release(dir, el, e),
         { passive: false }
       );
-      el.addEventListener(
-        'touchcancel',
-        () => release(dir, el),
-        { passive: false }
-      );
+      el.addEventListener('touchcancel', (e) => release(dir, el, e));
 
-      // Mouse (desktop testing with touch class forced)
-      el.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-        press(dir, el);
-      });
-      el.addEventListener('mouseup', () => release(dir, el));
+      el.addEventListener('mousedown', (e) => press(dir, el, e));
+      el.addEventListener('mouseup', (e) => release(dir, el, e));
       el.addEventListener('mouseleave', () => {
         if (this.padHeld.has(dir)) release(dir, el);
       });
     });
 
-    // If finger slides off pad entirely
+    // Zone-style hold: touchmove over buttons
+    pad.addEventListener(
+      'touchmove',
+      (e) => {
+        e.preventDefault();
+        const t = e.touches[0];
+        if (!t) return;
+        const el = document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null;
+        const btn = el?.closest?.('.pad-btn') as HTMLElement | null;
+        if (!btn) return;
+        const dir = btn.dataset.d;
+        if (!dir || this.padHeld.has(dir)) return;
+        // release others for single-finger zone stick
+        [...this.padHeld].forEach((d) => {
+          if (d !== dir) {
+            const b = pad.querySelector(`.pad-btn[data-d="${d}"]`) as HTMLElement | null;
+            if (b) release(d, b);
+          }
+        });
+        press(dir, btn);
+      },
+      { passive: false }
+    );
+
     window.addEventListener('blur', releaseAll);
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) releaseAll();
@@ -213,13 +246,17 @@ export class UIRoot {
 
   setOverlay(on: boolean) {
     document.body.classList.toggle('overlay', on);
-    // Always clear movement when a panel opens
+    if (this.padEl) {
+      // hide pad under modals so it doesn't steal taps
+      this.padEl.style.visibility = on ? 'hidden' : 'visible';
+      this.padEl.style.pointerEvents = on ? 'none' : 'auto';
+    }
     if (on) {
       this.padHeld.clear();
-      this.root
-        .querySelectorAll('.pad-btn.on')
+      this.padEl
+        ?.querySelectorAll('.pad-btn.on')
         .forEach((b) => b.classList.remove('on'));
-      this.emitPad();
+      MobileInput.clear();
     }
   }
 

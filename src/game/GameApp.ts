@@ -61,7 +61,6 @@ export class GameApp {
       onJournal: () => this.openJournal(),
       onMenu: () => this.openPause(),
       onSound: () => this.toggleSound(),
-      onPadAxes: (x, y) => this.scene?.setPadAxes(x, y),
     });
     (window as any).__GI_APP = this;
     game.registry.set('app', this);
@@ -224,9 +223,10 @@ export class GameApp {
 
   talkOrAdvance() {
     if (this.dlg) return this.advanceDialogue();
-    const e = this.scene?.nearestEnt(56);
+    // Generous radius on mobile — thumb + d-pad makes precise approach hard
+    const e = this.scene?.nearestEnt(96);
     if (e) this.startDialogue(e);
-    else this.toast('Walk closer to a coach');
+    else this.toast('Walk closer to a coach, then press Talk');
   }
 
   startDialogue(e: any) {

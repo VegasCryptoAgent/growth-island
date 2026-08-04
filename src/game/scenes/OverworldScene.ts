@@ -24,6 +24,7 @@ import {
 import { sfx } from '../systems/Audio';
 import { GameApp } from '../GameApp';
 import { net, type Peer } from '../systems/Net';
+import { MobileInput } from '../systems/MobileInput';
 
 type Ent = (typeof ENTS)[number] & {
   wx?: number;
@@ -53,8 +54,6 @@ export class OverworldScene extends Phaser.Scene {
   walkable!: (tx: number, ty: number) => boolean;
   ents: Ent[] = [];
   peerMap = new Map<string, PeerVisual>();
-  padX = 0;
-  padY = 0;
   stickX = 0;
   stickY = 0;
   zoneName = 'Profile Plaza';
@@ -255,8 +254,17 @@ export class OverworldScene extends Phaser.Scene {
     }
     this.player.setCollideWorldBounds(true);
     this.player.setDepth(py);
-    this.player.setDrag(800);
+    this.player.setDrag(0);
+    this.player.setMaxVelocity(400, 400);
+    if (this.player.body) {
+      const b = this.player.body as Phaser.Physics.Arcade.Body;
+      b.setAllowGravity(false);
+      b.setImmovable(false);
+      b.enable = true;
+      b.moves = true;
+    }
     this.cameras.main.startFollow(this.player, true, CAMERA_LERP, CAMERA_LERP);
+    this.cameras.main.setRoundPixels(true);
 
     // Entities
     this.ents = (ENTS as Ent[]).map((e) => {
@@ -431,11 +439,6 @@ export class OverworldScene extends Phaser.Scene {
     }
   }
 
-  setPadAxes(x: number, y: number) {
-    this.padX = x;
-    this.padY = y;
-  }
-
   isBlocked() {
     return this.blocked;
   }
@@ -443,11 +446,10 @@ export class OverworldScene extends Phaser.Scene {
     this.blocked = b;
     if (b && this.player) {
       this.player.setVelocity(0, 0);
-      this.padX = 0;
-      this.padY = 0;
       this.stickX = 0;
       this.stickY = 0;
       this.stickActive = false;
+      MobileInput.clear();
     }
   }
 
@@ -546,27 +548,27 @@ export class OverworldScene extends Phaser.Scene {
       this.player.setVelocity(0, 0);
       return;
     }
-    const dt = Math.min(2, dtMs / 16.67);
+    const dt = Math.min(2.5, Math.max(0.5, dtMs / 16.67));
     let vx = 0,
       vy = 0;
-    // Slightly snappier on touch devices
-    const speed = PLAYER_SPEED * 60 * (isCoarsePointer() ? 1.15 : 1);
+    // px per second — mobile needs snappy feedback
+    const speed = (isCoarsePointer() ? 220 : 180);
 
-    // Keyboard
-    if (this.cursors?.left?.isDown || this.wasd?.A?.isDown) vx -= 1;
-    if (this.cursors?.right?.isDown || this.wasd?.D?.isDown) vx += 1;
-    if (this.cursors?.up?.isDown || this.wasd?.W?.isDown) vy -= 1;
-    if (this.cursors?.down?.isDown || this.wasd?.S?.isDown) vy += 1;
-
-    // HTML d-pad (can be diagonal)
-    if (this.padX || this.padY) {
-      vx = this.padX;
-      vy = this.padY;
-    }
-    // Canvas virtual stick overrides if stronger
-    if (this.stickActive && (this.stickX || this.stickY)) {
-      vx = this.stickX;
-      vy = this.stickY;
+    // 1) Global HTML d-pad (MobileInput bus — always works if pad is pressed)
+    if (MobileInput.active || MobileInput.x || MobileInput.y) {
+      vx = MobileInput.x;
+      vy = MobileInput.y;
+    } else {
+      // 2) Keyboard
+      if (this.cursors?.left?.isDown || this.wasd?.A?.isDown) vx -= 1;
+      if (this.cursors?.right?.isDown || this.wasd?.D?.isDown) vx += 1;
+      if (this.cursors?.up?.isDown || this.wasd?.W?.isDown) vy -= 1;
+      if (this.cursors?.down?.isDown || this.wasd?.S?.isDown) vy += 1;
+      // 3) Canvas virtual stick
+      if (this.stickActive && (this.stickX || this.stickY)) {
+        vx = this.stickX;
+        vy = this.stickY;
+      }
     }
 
     const len = Math.hypot(vx, vy);
@@ -575,27 +577,29 @@ export class OverworldScene extends Phaser.Scene {
       vy /= len;
     }
 
-    // collision sample
-    const nx = this.player.x + vx * speed * (dt / 60) * 0.35;
-    const ny = this.player.y + vy * speed * (dt / 60) * 0.35;
-    const { tx, ty } = worldTile(nx, ny);
+    // Move with BOTH physics velocity AND direct position (physics can fail silently on mobile)
     if (vx || vy) {
-      if (this.walkable(tx, ty)) {
-        this.player.setVelocity(vx * speed, vy * speed);
-      } else {
-        // try axis-separated
-        const { tx: tx2 } = worldTile(nx, this.player.y);
-        const { ty: ty2 } = worldTile(this.player.x, ny);
-        this.player.setVelocity(
-          this.walkable(tx2, worldTile(this.player.x, this.player.y).ty)
-            ? vx * speed
-            : 0,
-          this.walkable(worldTile(this.player.x, this.player.y).tx, ty2)
-            ? vy * speed
-            : 0
-        );
+      const step = speed * (dtMs / 1000);
+      let nx = this.player.x + vx * step;
+      let ny = this.player.y + vy * step;
+      const { tx, ty } = worldTile(nx, ny);
+      if (!this.walkable(tx, ty)) {
+        // axis separate
+        const hx = this.player.x + vx * step;
+        const hy = this.player.y + vy * step;
+        const okX = this.walkable(worldTile(hx, this.player.y).tx, worldTile(hx, this.player.y).ty);
+        const okY = this.walkable(worldTile(this.player.x, hy).tx, worldTile(this.player.x, hy).ty);
+        nx = okX ? hx : this.player.x;
+        ny = okY ? hy : this.player.y;
       }
-    } else this.player.setVelocity(0, 0);
+      this.player.setPosition(nx, ny);
+      if (this.player.body) {
+        this.player.setVelocity(0, 0); // position-driven; avoid double-move
+        (this.player.body as Phaser.Physics.Arcade.Body).reset(nx, ny);
+      }
+    } else if (this.player.body) {
+      this.player.setVelocity(0, 0);
+    }
 
     // anims
     const moving = Math.hypot(this.player.body!.velocity.x, this.player.body!.velocity.y) > 8;
@@ -672,19 +676,7 @@ export class OverworldScene extends Phaser.Scene {
         e.sprite.x,
         e.sprite.y
       );
-      if (this.interactGrace <= 0 && d < 42 && e.arm !== false) {
-        // fully beaten champions don't re-interrupt movement
-        if (
-          e.k === 'foe' &&
-          this.save.cleared.includes(e.id) &&
-          this.save.champ[e.id]
-        ) {
-          /* pass */
-        } else {
-          e.arm = false;
-          this.app?.startDialogue(e);
-        }
-      }
+      // No auto-dialogue — mobile users must press Talk. Auto-talk froze the world.
       if (d > 70) e.arm = true;
     }
 
