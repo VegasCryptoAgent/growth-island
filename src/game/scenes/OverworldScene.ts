@@ -15,12 +15,7 @@ import { SCROLLS } from '../data/scrolls';
 import { ZONES } from '../data/zones';
 import { generateIsland, zoneAt, worldTile } from '../systems/MapGen';
 import type { GameSave } from '../systems/Save';
-import {
-  addGS,
-  dayKey,
-  emitEvent,
-  writeSave,
-} from '../systems/Save';
+import { addGS, dayKey, emitEvent, writeSave } from '../systems/Save';
 import { sfx } from '../systems/Audio';
 import { GameApp } from '../GameApp';
 import { net, type Peer } from '../systems/Net';
@@ -383,10 +378,19 @@ export class OverworldScene extends Phaser.Scene {
     const today = dayKey();
     if (this.save?.lastDay !== today) {
       const y = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+      const prev = this.save.lastDay;
       this.save.streak =
         this.save.lastDay === y ? (this.save.streak || 1) + 1 : 1;
       this.save.lastDay = today;
       this.save.daily = { game: 'feed', target: 12000, day: today, done: false };
+      // Retention reward for returning (not first ever day)
+      if (prev) {
+        const bonus = Math.min(25, 5 + (this.save.streak || 1) * 2);
+        addGS(this.save, bonus, `Day ${this.save.streak} streak bonus`);
+        this.time.delayedCall(600, () => {
+          this.app?.toast?.(`🔥 ${this.save.streak}-day streak! +${bonus} GS`);
+        });
+      }
       writeSave(this.save);
     }
     // Expose player immediately for e2e even before bindScene

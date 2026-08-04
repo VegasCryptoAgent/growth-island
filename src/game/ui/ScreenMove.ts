@@ -22,7 +22,8 @@ export class ScreenMove {
   private readonly maxR = 56;
   private readonly dead = 10;
   private active = false;
-  private isCoarse = false;
+  /** true on touch devices — public for diagnostics */
+  isCoarse = false;
 
   /** Callback: convert screen CSS px → world coords (set by OverworldScene) */
   screenToWorld: ((sx: number, sy: number) => { x: number; y: number }) | null =
@@ -189,7 +190,12 @@ export class ScreenMove {
     } catch {
       /* */
     }
-    const isTouch = e.pointerType === 'touch' || this.isCoarse;
+    // Treat as touch stick if coarse pointer OR explicit touch/pen
+    const isTouch =
+      e.pointerType === 'touch' ||
+      e.pointerType === 'pen' ||
+      this.isCoarse ||
+      (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0);
     this.beginDrag(e.clientX, e.clientY, e.pointerId, isTouch);
   }
 
@@ -257,8 +263,13 @@ export class ScreenMove {
   private dragTo(clientX: number, clientY: number) {
     if (this.mode !== 'drag') return;
 
-    if (this.isCoarse) {
-      // Mobile: virtual stick under finger (direction from touch start)
+    const useStick =
+      this.isCoarse ||
+      (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) ||
+      !this.screenToWorld;
+
+    if (useStick && (this.isCoarse || this.ring)) {
+      // Virtual stick under finger (direction from touch start)
       let dx = clientX - this.origin.x;
       let dy = clientY - this.origin.y;
       const len = Math.hypot(dx, dy);
@@ -272,18 +283,24 @@ export class ScreenMove {
       if (this.knob) {
         this.knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
       }
+      // On hybrid: also set world target if available
+      if (this.screenToWorld && !this.isCoarse) {
+        this.target = this.screenToWorld(clientX, clientY);
+      }
       return;
     }
 
-    // Desktop: walk toward world point under the cursor while held
+    // Desktop mouse: walk toward world point under the cursor while held
     if (this.screenToWorld) {
       this.target = this.screenToWorld(clientX, clientY);
     } else {
-      // fallback: screen-relative stick
       let dx = clientX - this.origin.x;
       let dy = clientY - this.origin.y;
       const len = Math.hypot(dx, dy) || 1;
-      MobileInput.setAxes(dx / Math.max(len, this.maxR), dy / Math.max(len, this.maxR));
+      MobileInput.setAxes(
+        dx / Math.max(len, this.maxR),
+        dy / Math.max(len, this.maxR)
+      );
     }
   }
 

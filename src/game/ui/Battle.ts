@@ -25,6 +25,7 @@ export type BattleResult = {
   foeId: string;
   award?: string;
   champion: boolean;
+  itemsLeft: number;
 };
 
 function monOf(id: string): Mon {
@@ -123,6 +124,7 @@ export function openBattle(
         foeId: foe.id,
         award: won ? foe.award : undefined,
         champion: opts.champion,
+        itemsLeft: items,
       });
     }, 700);
   };

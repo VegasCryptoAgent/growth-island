@@ -477,6 +477,7 @@ export class GameApp {
         const sg = this.save();
         this.ui.clearPanel();
         this.scene!.setBlocked(false);
+        if (typeof r.itemsLeft === 'number') sg.items = r.itemsLeft;
         if (r.won) {
           if (!sg.cleared.includes(e.id)) {
             sg.cleared.push(e.id);
@@ -486,17 +487,18 @@ export class GameApp {
             sg.champ[e.id] = true;
             addGS(sg, 25, 'Champion: ' + e.n);
           }
-          // consume tonic if used is tracked inside battle via items return — skip
           if (r.award) this.grantSignal(r.award, 'Won from ' + e.n);
           emitEvent(sg, 'battle_win', { id: e.id, champion });
           writeSave(sg);
           this.cloudSync();
+          track('battle_win', { id: e.id, champion });
           this.toast(
             champion ? `Champion defeated: ${e.n}` : `Blocker cleared: ${e.n}`
           );
           this.refreshHud();
           this.checkQuests();
         } else {
+          writeSave(sg);
           this.toast('Pull back, recover, try again');
           sfx.hurt();
         }
