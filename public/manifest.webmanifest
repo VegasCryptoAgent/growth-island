@@ -1,0 +1,18 @@
+{
+  "name": "Growth Island",
+  "short_name": "Growth Island",
+  "description": "A networking game — walk, learn Signals, score hooks, connect.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#BFEAF5",
+  "theme_color": "#0A66C2",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

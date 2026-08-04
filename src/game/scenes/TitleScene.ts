@@ -42,10 +42,16 @@ export class TitleScene extends Phaser.Scene {
     // Hide game HUD until overworld
     document.body.classList.add('on-title');
 
-    // E2E / debug: force enter overworld via Phaser game.scene API
-    (window as unknown as { __GI_FORCE_START?: (house?: string) => string }).__GI_FORCE_START =
-      (house = 'builder') => {
-        // Absolute minimum work — everything else deferred so CDP evaluate never blocks
+    // Dev / explicit ?e2e=1 only — not a public production API
+    const e2eMode =
+      import.meta.env.DEV ||
+      (typeof location !== 'undefined' &&
+        /(?:^|[?&])e2e=1(?:&|$)/.test(location.search));
+    if (e2eMode) {
+      (window as any).__E2E_AUTO = true;
+      (
+        window as unknown as { __GI_FORCE_START?: (house?: string) => string }
+      ).__GI_FORCE_START = (house = 'builder') => {
         const game = this.game;
         window.setTimeout(() => {
           try {
@@ -68,11 +74,11 @@ export class TitleScene extends Phaser.Scene {
             game.scene.start('overworld');
           } catch (e) {
             console.error('[title] force start failed', e);
-            (window as any).__GI_OW_ERR = String(e);
           }
         }, 0);
         return 'scheduled';
       };
+    }
 
     this.mountTitleUI();
   }
@@ -222,21 +228,33 @@ export class TitleScene extends Phaser.Scene {
     }
   }
 
+  /** Title-screen auth uses HTML modal (no window.prompt) */
   async authFlow() {
-    const email = window.prompt('Email');
-    if (!email) return;
-    const password = window.prompt('Password (min 6)');
-    if (!password) return;
-    const name =
-      window.prompt('Display name (register only, optional)') || 'Traveller';
-    try {
-      let res;
-      try {
-        res = await api.login(email, password);
-      } catch {
-        res = await api.register(email, password, name);
-      }
-      setToken(res.token);
+    document.getElementById('gi-auth-modal')?.remove();
+    const modal = document.createElement('div');
+    modal.id = 'gi-auth-modal';
+    modal.className = 'title-ui';
+    modal.style.zIndex = '10060';
+    modal.innerHTML = `
+      <div class="title-card card" style="text-align:left">
+        <p class="title-kicker">ACCOUNT</p>
+        <h2 class="title-h2" style="text-align:center">Sign in / Register</h2>
+        <input type="text" id="tAuthName" placeholder="Display name" style="margin:6px 0"/>
+        <input type="email" id="tAuthEmail" placeholder="Email" style="margin:6px 0"/>
+        <input type="password" id="tAuthPass" placeholder="Password (min 6)" style="margin:6px 0"/>
+        <button type="button" class="btn title-btn" id="tAuthReg">Create account</button>
+        <button type="button" class="btn2 title-btn" id="tAuthLogin">Sign in</button>
+        <button type="button" class="btn2 title-btn" id="tAuthForgot">Forgot password</button>
+        <button type="button" class="btn2 title-btn" id="tAuthClose">Cancel</button>
+        <p id="tAuthErr" style="color:#D93B4E;font-weight:800;font-size:12px;min-height:18px"></p>
+      </div>`;
+    document.body.appendChild(modal);
+    const err = (m: string) => {
+      (modal.querySelector('#tAuthErr') as HTMLElement).textContent = m;
+    };
+    modal.querySelector('#tAuthClose')!.addEventListener('click', () => modal.remove());
+    const finish = async (token: string, user: { id: string; name: string }) => {
+      setToken(token);
       let save = loadSave();
       try {
         const cloud = await api.getProgress();
@@ -250,15 +268,50 @@ export class TitleScene extends Phaser.Scene {
         save.team = ['proof'];
         save.active = 'proof';
       }
-      save.pid = res.user.id;
-      save.name = res.user.name;
+      save.pid = user.id;
+      save.name = user.name;
       writeSave(save);
+      modal.remove();
       this.enterGame(save, !(save.seen && save.seen.length));
-    } catch (e) {
-      window.alert(
-        (e as Error).message || 'Auth failed — is the API running?'
-      );
-    }
+    };
+    modal.querySelector('#tAuthReg')!.addEventListener('click', async () => {
+      try {
+        const name = (modal.querySelector('#tAuthName') as HTMLInputElement).value;
+        const email = (modal.querySelector('#tAuthEmail') as HTMLInputElement).value;
+        const password = (modal.querySelector('#tAuthPass') as HTMLInputElement).value;
+        const res = await api.register(email, password, name || 'Traveller');
+        await finish(res.token, res.user);
+      } catch (e) {
+        err((e as Error).message);
+      }
+    });
+    modal.querySelector('#tAuthLogin')!.addEventListener('click', async () => {
+      try {
+        const email = (modal.querySelector('#tAuthEmail') as HTMLInputElement).value;
+        const password = (modal.querySelector('#tAuthPass') as HTMLInputElement).value;
+        const res = await api.login(email, password);
+        await finish(res.token, res.user);
+      } catch (e) {
+        err((e as Error).message);
+      }
+    });
+    modal.querySelector('#tAuthForgot')!.addEventListener('click', async () => {
+      try {
+        const email = (modal.querySelector('#tAuthEmail') as HTMLInputElement).value;
+        if (!email) return err('Enter your email first');
+        const res = await api.forgot(email);
+        if (res.resetToken) {
+          const pw = window.prompt('Enter a new password (min 6)');
+          if (!pw) return;
+          const reset = await api.reset(res.resetToken, pw);
+          await finish(reset.token, reset.user);
+        } else {
+          err(res.message || 'Check your email');
+        }
+      } catch (e) {
+        err((e as Error).message);
+      }
+    });
   }
 
   shutdown() {

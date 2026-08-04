@@ -38,7 +38,10 @@ async function probe(page, label) {
     }
   });
 
-  await page.goto(BASE + '/?s=' + Date.now(), { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.goto(BASE + '/?e2e=1&s=' + Date.now(), {
+    waitUntil: 'domcontentloaded',
+    timeout: 30000,
+  });
   await page.waitForFunction(() => typeof window.__GI_FORCE_START === 'function', {
     timeout: 20000,
   });

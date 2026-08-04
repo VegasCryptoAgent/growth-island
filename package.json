@@ -11,7 +11,9 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "start": "node server/index.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "smoke": "node scripts/smoke-movement.mjs",
+    "ci:smoke": "npm run build && node server/index.mjs & sleep 2 && BASE_URL=http://127.0.0.1:8787 node scripts/smoke-movement.mjs"
   },
   "engines": {
     "node": ">=20"

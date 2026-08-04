@@ -5,9 +5,45 @@ import { TitleScene } from './game/scenes/TitleScene';
 import { OverworldScene } from './game/scenes/OverworldScene';
 import { GameApp } from './game/GameApp';
 import { COLORS } from './game/config';
+import { initSentry, track } from './game/systems/Analytics';
+import { mountSyncBanner, setSyncState } from './game/systems/SyncStatus';
 
 const gameRoot = document.getElementById('game-root')!;
 const uiRoot = document.getElementById('ui-root')!;
+
+// Boot failure UI
+function showBootError(msg: string) {
+  const el = document.createElement('div');
+  el.id = 'gi-boot-error';
+  el.innerHTML = `
+    <div class="gi-boot-card">
+      <div style="font-size:40px">🏝️</div>
+      <h1>Couldn’t start Growth Island</h1>
+      <p>${msg}</p>
+      <button type="button" class="btn" id="giBootReload">Reload</button>
+    </div>`;
+  document.body.appendChild(el);
+  document.getElementById('giBootReload')?.addEventListener('click', () =>
+    location.reload()
+  );
+}
+
+try {
+  initSentry();
+  mountSyncBanner();
+  track('app_boot');
+} catch {
+  /* */
+}
+
+// Claim invite from URL
+try {
+  const u = new URL(location.href);
+  const inv = u.searchParams.get('invite');
+  if (inv) sessionStorage.setItem('gi_invite', inv);
+} catch {
+  /* */
+}
 
 /** iOS Safari / coarse pointer — prefer Canvas; avoid WebGL black screens */
 const isMobile =
@@ -25,75 +61,83 @@ function viewSize() {
 
 const { w: startW, h: startH } = viewSize();
 
-const game = new Phaser.Game({
-  // Canvas everywhere: WebGL black-screens / freezes some mobile + headless CI
-  type: Phaser.CANVAS,
-  parent: gameRoot,
-  backgroundColor: COLORS.sky,
-  scale: {
-    mode: Phaser.Scale.RESIZE,
-    width: startW,
-    height: startH,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
-    expandParent: true,
-  },
-  // Real phones: rAF for smooth walk. forceSetTimeOut only hurts responsiveness.
-  // Playwright e2e can set window.__E2E and we still work via MobileInput.
-  fps: {
-    target: isMobile ? 45 : 60,
-    forceSetTimeOut: false,
-    smoothStep: true,
-  },
-  // Do NOT capture document-level touch — HTML joystick must win
-  input: {
-    activePointers: 3,
-    windowEvents: true,
-  },
-  physics: {
-    default: 'arcade',
-    arcade: { debug: false },
-  },
-  scene: [BootScene, TitleScene, OverworldScene],
-  render: {
-    antialias: !isMobile,
-    pixelArt: false,
-    roundPixels: true,
-    powerPreference: isMobile ? 'default' : 'high-performance',
-  },
-  audio: {
-    disableWebAudio: false,
-  },
-  banner: false,
-  // Prevent canvas from eating HTML control hits on some WebViews
-  dom: {
-    createContainer: false,
-  },
-});
+let game: Phaser.Game;
+try {
+  game = new Phaser.Game({
+    type: Phaser.CANVAS,
+    parent: gameRoot,
+    backgroundColor: COLORS.sky,
+    scale: {
+      mode: Phaser.Scale.RESIZE,
+      width: startW,
+      height: startH,
+      autoCenter: Phaser.Scale.CENTER_BOTH,
+      expandParent: true,
+    },
+    fps: {
+      target: isMobile ? 45 : 60,
+      forceSetTimeOut: false,
+      smoothStep: true,
+    },
+    input: {
+      activePointers: 3,
+      windowEvents: true,
+    },
+    physics: {
+      default: 'arcade',
+      arcade: { debug: false },
+    },
+    scene: [BootScene, TitleScene, OverworldScene],
+    render: {
+      antialias: !isMobile,
+      pixelArt: false,
+      roundPixels: true,
+      powerPreference: isMobile ? 'default' : 'high-performance',
+    },
+    audio: {
+      disableWebAudio: false,
+    },
+    banner: false,
+    dom: {
+      createContainer: false,
+    },
+  });
 
-// Ensure canvas never sits above HTML UI/controls
-queueMicrotask(() => {
-  const canvas = gameRoot.querySelector('canvas') as HTMLElement | null;
-  if (canvas) {
-    canvas.style.zIndex = '1';
-    canvas.style.position = 'relative';
-    canvas.style.touchAction = 'none';
+  queueMicrotask(() => {
+    const canvas = gameRoot.querySelector('canvas') as HTMLElement | null;
+    if (canvas) {
+      canvas.style.zIndex = '1';
+      canvas.style.position = 'relative';
+      canvas.style.touchAction = 'none';
+    }
+    const ui = document.getElementById('ui-root');
+    if (ui) ui.style.zIndex = '30';
+  });
+
+  new GameApp(game, uiRoot);
+
+  // Register service worker for PWA offline shell
+  if ('serviceWorker' in navigator && import.meta.env.PROD) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      /* optional */
+    });
   }
-  const ui = document.getElementById('ui-root');
-  if (ui) {
-    ui.style.zIndex = '20';
-  }
-});
+} catch (e) {
+  console.error(e);
+  showBootError(
+    (e as Error).message ||
+      'The game engine failed to start. Try another browser or reload.'
+  );
+  setSyncState('error', 'Boot failed');
+  throw e;
+}
 
-// Bridge UI + game
-new GameApp(game, uiRoot);
-
-// Keep buffer size in sync with mobile browser chrome show/hide
 let resizeT: ReturnType<typeof setTimeout> | null = null;
 const onResize = () => {
   if (resizeT) clearTimeout(resizeT);
   resizeT = setTimeout(() => {
     const { w, h } = viewSize();
-    if (game.scale) game.scale.resize(w, h);
+    if (game?.scale) game.scale.resize(w, h);
   }, 50);
 };
 window.addEventListener('resize', onResize);
@@ -101,7 +145,6 @@ window.addEventListener('orientationchange', onResize);
 window.visualViewport?.addEventListener('resize', onResize);
 window.visualViewport?.addEventListener('scroll', onResize);
 
-// Persist on hide
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     const scene = game.scene.getScene('overworld') as OverworldScene | null;

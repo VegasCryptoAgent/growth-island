@@ -1,4 +1,24 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+
+/* Sync / boot / production chrome */
+.gi-sync-banner{
+  position:fixed;left:50%;top:0;transform:translateX(-50%) translateY(-120%);
+  z-index:20000;padding:8px 16px;border-radius:0 0 12px 12px;color:#fff;
+  font-weight:800;font-size:12px;pointer-events:none;transition:transform .25s;
+  max-width:92vw;text-align:center;
+}
+.gi-sync-banner.show{transform:translateX(-50%) translateY(0)}
+.gi-sync-banner.hidden{display:none}
+#gi-boot-error{
+  position:fixed;inset:0;z-index:30000;display:flex;align-items:center;justify-content:center;
+  background:#BFEAF5;padding:20px;
+}
+.gi-boot-card{
+  background:#fff;border:2px solid #123253;border-radius:20px;padding:28px;max-width:400px;
+  text-align:center;box-shadow:0 8px 0 #123253;
+}
+.gi-boot-card h1{font-size:22px;margin:8px 0}
+.gi-boot-card p{font-weight:700;color:#5C7A99;line-height:1.45}
 html,body,#app{
   margin:0;
   width:100%;

@@ -1,6 +1,12 @@
 import { API_BASE, AUTH_KEY } from '../config';
+import { setSyncState } from './SyncStatus';
 
-export type AuthUser = { id: string; email: string; name: string };
+export type AuthUser = {
+  id: string;
+  email: string;
+  name: string;
+  inviteCode?: string;
+};
 
 export type LeaderboardRow = {
   rank: number;
@@ -52,20 +58,46 @@ async function req<T>(
     const t = token();
     if (t) headers.Authorization = `Bearer ${t}`;
   }
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...opts,
-    headers,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...opts,
+      headers,
+    });
+  } catch {
+    setSyncState('offline', 'Offline — progress saves on this device');
+    throw new Error('Network offline');
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (res.status === 409 && (data as { save?: unknown }).save) {
+      setSyncState('conflict', 'Cloud save differs — open Account');
+      const err = new Error(
+        (data as { error?: string }).error || 'Conflict'
+      ) as Error & { conflict?: unknown; serverUpdatedAt?: number };
+      err.conflict = (data as { save?: unknown }).save;
+      err.serverUpdatedAt = (data as { serverUpdatedAt?: number })
+        .serverUpdatedAt;
+      throw err;
+    }
     throw new Error((data as { error?: string }).error || res.statusText);
   }
+  if (stateWasOffline()) setSyncState('online', '');
   return data as T;
+}
+
+function stateWasOffline() {
+  return !navigator.onLine;
 }
 
 export const api = {
   health: () =>
-    req<{ ok: boolean; online: number }>('/api/health', { auth: false }),
+    req<{
+      ok: boolean;
+      online: number;
+      dataWritable?: boolean;
+      jwtConfigured?: boolean;
+    }>('/api/health', { auth: false }),
 
   register: (email: string, password: string, name: string) =>
     req<{ token: string; user: AuthUser }>('/api/auth/register', {
@@ -81,7 +113,35 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
 
+  forgot: (email: string) =>
+    req<{ ok: boolean; message: string; resetToken?: string }>(
+      '/api/auth/forgot',
+      {
+        method: 'POST',
+        auth: false,
+        body: JSON.stringify({ email }),
+      }
+    ),
+
+  reset: (token: string, password: string) =>
+    req<{ ok: boolean; token: string; user: AuthUser }>('/api/auth/reset', {
+      method: 'POST',
+      auth: false,
+      body: JSON.stringify({ token, password }),
+    }),
+
   me: () => req<{ user: AuthUser }>('/api/me'),
+
+  patchMe: (name: string) =>
+    req<{ user: AuthUser }>('/api/me', {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    }),
+
+  deleteMe: () =>
+    req<{ ok: boolean }>('/api/me', {
+      method: 'DELETE',
+    }),
 
   submitHook: (text: string, score: number, shareWorthy: boolean) =>
     req<{
@@ -102,10 +162,17 @@ export const api = {
       { auth: true }
     ),
 
-  putProgress: (save: unknown) =>
-    req<{ ok: boolean }>('/api/progress', {
+  putProgress: (
+    save: unknown,
+    opts?: { clientUpdatedAt?: number; force?: boolean }
+  ) =>
+    req<{ ok: boolean; updatedAt: number }>('/api/progress', {
       method: 'PUT',
-      body: JSON.stringify({ save }),
+      body: JSON.stringify({
+        save,
+        clientUpdatedAt: opts?.clientUpdatedAt,
+        force: opts?.force,
+      }),
     }),
 
   getProgress: () =>
@@ -121,4 +188,24 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ to }),
     }),
+
+  submitSeller: (title: string, price: string, email: string) =>
+    req<{ ok: boolean; id: string; status: string }>('/api/sellers', {
+      method: 'POST',
+      body: JSON.stringify({ title, price, email }),
+    }),
+
+  mySellers: () =>
+    req<{ items: { id: string; title: string; status: string; price: string }[] }>(
+      '/api/sellers/mine'
+    ),
+
+  claimInvite: (code: string) =>
+    req<{ ok: boolean; inviter?: string; already?: boolean }>(
+      '/api/invite/claim',
+      {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      }
+    ),
 };

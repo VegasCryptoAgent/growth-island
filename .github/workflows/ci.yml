@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Install Playwright browser
+        run: npx playwright install chromium --with-deps
+      - name: Start server & smoke
+        env:
+          JWT_SECRET: ci-test-secret-not-for-production-use-32
+          NODE_ENV: production
+          PORT: 8787
+          ADMIN_KEY: ci-admin
+        run: |
+          node server/index.mjs &
+          sleep 2
+          curl -sf http://127.0.0.1:8787/api/health
+          BASE_URL=http://127.0.0.1:8787 node scripts/smoke-movement.mjs

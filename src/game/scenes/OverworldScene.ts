@@ -25,6 +25,7 @@ import { sfx } from '../systems/Audio';
 import { GameApp } from '../GameApp';
 import { net, type Peer } from '../systems/Net';
 import { MobileInput } from '../systems/MobileInput';
+import { startTutorial } from '../ui/Tutorial';
 
 type Ent = (typeof ENTS)[number] & {
   wx?: number;
@@ -80,32 +81,66 @@ export class OverworldScene extends Phaser.Scene {
    * Keeps create() under ~50ms so mobile never freezes on house-select.
    */
   paintGround(grid: Uint8Array) {
-    const g = this.add.graphics().setDepth(0);
-    // Sea base
-    g.fillStyle(0x1f86c4, 1);
-    g.fillRect(0, 0, MAP_W * TILE, MAP_H * TILE);
-
-    // Horizontal run-length encode per row — far fewer draw calls than 8k tiles
-    for (let ty = 0; ty < MAP_H; ty++) {
-      let tx = 0;
-      while (tx < MAP_W) {
-        const t = grid[ty * MAP_W + tx];
-        if (t === 0) {
-          tx++;
-          continue;
+    // Fast 1px/tile texture scaled by GPU — looks polished, stays mobile-safe
+    const worldW = MAP_W * TILE;
+    const worldH = MAP_H * TILE;
+    const mini = document.createElement('canvas');
+    mini.width = MAP_W;
+    mini.height = MAP_H;
+    const ctx = mini.getContext('2d')!;
+    const img = ctx.createImageData(MAP_W, MAP_H);
+    const d = img.data;
+    for (let i = 0; i < grid.length; i++) {
+      const t = grid[i];
+      const tx = i % MAP_W;
+      const ty = (i / MAP_W) | 0;
+      let r = 31,
+        g = 134,
+        b = 196;
+      if (t === 0) {
+        if ((tx + ty) % 7 === 0) {
+          r = 58;
+          g = 168;
+          b = 212;
         }
-        let end = tx + 1;
-        while (end < MAP_W && grid[ty * MAP_W + end] === t) end++;
-        let color = 0x6fcf76;
-        if (t === 1) color = 0xf4e2b0;
-        else if (t === 3) color = 0xc9a86c;
-        else if ((tx * 3 + ty * 7) % 3 === 1) color = 0x89da8f;
-        else if ((tx * 3 + ty * 7) % 3 === 2) color = 0x5fbf68;
-        g.fillStyle(color, 1);
-        g.fillRect(tx * TILE, ty * TILE, (end - tx) * TILE + 0.5, TILE + 0.5);
-        tx = end;
+      } else if (t === 1) {
+        r = 244;
+        g = 226;
+        b = 176;
+      } else if (t === 3) {
+        r = 201;
+        g = 168;
+        b = 108;
+      } else {
+        const v = (tx * 3 + ty * 7) % 3;
+        if (v === 0) {
+          r = 111;
+          g = 207;
+          b = 118;
+        } else if (v === 1) {
+          r = 137;
+          g = 218;
+          b = 143;
+        } else {
+          r = 95;
+          g = 191;
+          b = 104;
+        }
       }
+      const o = i * 4;
+      d[o] = r;
+      d[o + 1] = g;
+      d[o + 2] = b;
+      d[o + 3] = 255;
     }
+    ctx.putImageData(img, 0, 0);
+    if (this.textures.exists('gi_ground')) this.textures.remove('gi_ground');
+    this.textures.addCanvas('gi_ground', mini);
+    this.add
+      .image(0, 0, 'gi_ground')
+      .setOrigin(0, 0)
+      .setDisplaySize(worldW, worldH)
+      .setDepth(0);
   }
 
   create() {
@@ -168,15 +203,44 @@ export class OverworldScene extends Phaser.Scene {
     this.cameras.main.startFollow(this.player, true, 0.2, 0.2);
     console.log('[overworld] player ready');
 
-    // Landmarks near spawn only (far-off props still work when player walks)
+    // Landmarks — prefer build atlas, fall back to styled cards
     for (const lm of LMK as any[]) {
       const z = (ZONES as any[]).find((zz) => zz.id === lm.z);
       if (!z) continue;
       const x = (z.x + ((z.w / 2 + (lm.ox || 0)) | 0)) * TILE + TILE / 2;
       const y = (z.y + ((z.h / 2 + (lm.oy || 0)) | 0)) * TILE + TILE / 2;
-      this.add.rectangle(x, y - 18, 48, 40, 0xffffff).setStrokeStyle(3, 0x123253).setDepth(y);
+      if (this.textures.exists('build')) {
+        try {
+          const tex = this.textures.get('build');
+          const img = tex.getSourceImage() as HTMLImageElement;
+          const fw = Math.floor(img.width / 8) || 32;
+          const fh = Math.floor(img.height / 4) || 32;
+          const col = Math.max(
+            0,
+            (ZONES as any[]).findIndex((zz) => zz.id === lm.z)
+          );
+          const fi = col % 8;
+          const fname = `build_lm_${fi}`;
+          if (!tex.has(fname)) tex.add(fname, 0, fi * fw, 0, fw, fh);
+          this.add
+            .image(x, y, 'build', fname)
+            .setDisplaySize(TILE * 2.8, TILE * 2.8)
+            .setOrigin(0.5, 0.85)
+            .setDepth(y);
+        } catch {
+          this.add
+            .rectangle(x, y - 18, 52, 44, 0xffffff)
+            .setStrokeStyle(3, 0x123253)
+            .setDepth(y);
+        }
+      } else {
+        this.add
+          .rectangle(x, y - 18, 52, 44, 0xffffff)
+          .setStrokeStyle(3, 0x123253)
+          .setDepth(y);
+      }
       this.add
-        .text(x, y + 10, String(lm.n).toUpperCase(), {
+        .text(x, y + 12, String(lm.n).toUpperCase(), {
           fontFamily: 'system-ui',
           fontSize: '9px',
           color: '#123253',
@@ -301,12 +365,8 @@ export class OverworldScene extends Phaser.Scene {
 
     if (this.registry.get('intro')) {
       this.registry.set('intro', false);
-      this.time.delayedCall(200, () => {
-        this.app?.toast?.(
-          isCoarsePointer()
-            ? 'Drag your finger on the island to walk. Press Talk near coaches.'
-            : 'Click & hold with the mouse to walk (or WASD). Press Talk near coaches.'
-        );
+      this.time.delayedCall(350, () => {
+        if (this.app) startTutorial(this.app);
       });
     }
 
@@ -350,9 +410,11 @@ export class OverworldScene extends Phaser.Scene {
     (window as any).__GI_READY = true;
     (window as any).__GI_PLAYER = this.player;
 
-    // Self-contained e2e harness — run SYNCHRONOUSLY before create returns
-    // (game loop/render can starve timers in headless Canvas)
-    if ((window as any).__E2E_AUTO) {
+    // E2E harness only in non-production builds (or explicit flag)
+    if (
+      (import.meta.env.DEV || (window as any).__E2E_AUTO) &&
+      (window as any).__E2E_AUTO
+    ) {
       try {
         this.blocked = false;
         document.body.classList.remove('overlay', 'on-title');

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Growth Island Admin</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        background: #bfeaf5;
+        color: #123253;
+        margin: 0;
+        padding: 20px;
+      }
+      .card {
+        background: #fff;
+        border: 2px solid #123253;
+        border-radius: 16px;
+        padding: 16px;
+        margin: 12px 0;
+        max-width: 960px;
+      }
+      input,
+      button {
+        font: inherit;
+        padding: 8px 12px;
+        margin: 4px 0;
+        border-radius: 10px;
+        border: 2px solid #123253;
+      }
+      button {
+        background: #0a66c2;
+        color: #fff;
+        font-weight: 800;
+        cursor: pointer;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      th,
+      td {
+        border-bottom: 1px solid #dde8f2;
+        padding: 6px;
+        text-align: left;
+      }
+      .muted {
+        color: #5c7a99;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🏝️ Growth Island Admin</h1>
+    <div class="card">
+      <label>Admin key <input type="password" id="key" placeholder="ADMIN_KEY" /></label>
+      <button id="load">Load</button>
+      <p class="muted" id="status">Set ADMIN_KEY env on the server, then paste it here.</p>
+    </div>
+    <div class="card" id="overview"></div>
+    <div class="card" id="sellers"></div>
+    <div class="card" id="users"></div>
+    <div class="card" id="analytics"></div>
+    <script>
+      const keyEl = document.getElementById('key');
+      keyEl.value = localStorage.getItem('gi_admin_key') || '';
+      async function api(path, opts = {}) {
+        const key = keyEl.value;
+        localStorage.setItem('gi_admin_key', key);
+        const r = await fetch(path, {
+          ...opts,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Admin-Key': key,
+            ...(opts.headers || {}),
+          },
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || r.statusText);
+        return j;
+      }
+      document.getElementById('load').onclick = async () => {
+        const st = document.getElementById('status');
+        try {
+          const o = await api('/api/admin/overview');
+          st.textContent = 'OK';
+          document.getElementById('overview').innerHTML =
+            '<h2>Overview</h2><pre>' + JSON.stringify(o, null, 2) + '</pre>' +
+            '<button id="backup">Force backup</button>';
+          document.getElementById('backup').onclick = async () => {
+            await api('/api/admin/backup', { method: 'POST', body: '{}' });
+            alert('Backup created');
+          };
+          const s = await api('/api/admin/sellers');
+          document.getElementById('sellers').innerHTML =
+            '<h2>Seller submissions</h2><table><tr><th>Title</th><th>Price</th><th>Email</th><th>Status</th><th></th></tr>' +
+            s.sellers
+              .map(
+                (x) =>
+                  `<tr><td>${x.title}</td><td>${x.price}</td><td>${x.email}</td><td>${x.status}</td>
+                  <td><button data-id="${x.id}" data-s="approved">✓</button>
+                  <button data-id="${x.id}" data-s="rejected">✗</button></td></tr>`
+              )
+              .join('') +
+            '</table>';
+          document.querySelectorAll('#sellers button[data-id]').forEach((b) => {
+            b.onclick = async () => {
+              await api('/api/admin/sellers/' + b.dataset.id, {
+                method: 'POST',
+                body: JSON.stringify({ status: b.dataset.s }),
+              });
+              document.getElementById('load').click();
+            };
+          });
+          const u = await api('/api/admin/users');
+          document.getElementById('users').innerHTML =
+            '<h2>Users</h2><table><tr><th>Name</th><th>Email</th><th>Banned</th><th></th></tr>' +
+            u.users
+              .map(
+                (x) =>
+                  `<tr><td>${x.name}</td><td>${x.email}</td><td>${x.banned}</td>
+                  <td><button data-ban="${x.id}">Ban</button>
+                  <button data-unban="${x.id}">Unban</button></td></tr>`
+              )
+              .join('') +
+            '</table>';
+          document.querySelectorAll('[data-ban]').forEach((b) => {
+            b.onclick = async () => {
+              await api('/api/admin/ban', {
+                method: 'POST',
+                body: JSON.stringify({ userId: b.dataset.ban }),
+              });
+              document.getElementById('load').click();
+            };
+          });
+          document.querySelectorAll('[data-unban]').forEach((b) => {
+            b.onclick = async () => {
+              await api('/api/admin/unban', {
+                method: 'POST',
+                body: JSON.stringify({ userId: b.dataset.unban }),
+              });
+              document.getElementById('load').click();
+            };
+          });
+          const a = await api('/api/admin/analytics');
+          document.getElementById('analytics').innerHTML =
+            '<h2>Analytics today</h2><pre>' + JSON.stringify(a.counts, null, 2) + '</pre>';
+        } catch (e) {
+          st.textContent = e.message;
+        }
+      };
+    </script>
+  </body>
+</html>

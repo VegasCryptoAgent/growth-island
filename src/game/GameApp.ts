@@ -28,6 +28,9 @@ import { openBattle } from './ui/Battle';
 import { esc } from './util/escape';
 import { MONS } from './data/mons';
 import { MobileInput } from './systems/MobileInput';
+import { track } from './systems/Analytics';
+import { setSyncState } from './systems/SyncStatus';
+import { startTutorial } from './ui/Tutorial';
 
 type DNode =
   | { s: string }
@@ -138,15 +141,28 @@ export class GameApp {
 
   async cloudSyncNow() {
     if (!getToken() || !this.scene) return;
+    setSyncState('syncing');
     try {
       const g = this.save();
       if (this.user) {
         g.pid = this.user.id;
         g.name = this.user.name;
       }
-      await api.putProgress(g);
-    } catch {
-      /* offline ok */
+      const clientUpdatedAt = Number(
+        sessionStorage.getItem('gi_cloud_updated') || 0
+      );
+      const res = await api.putProgress(g, { clientUpdatedAt });
+      sessionStorage.setItem('gi_cloud_updated', String(res.updatedAt));
+      setSyncState('online');
+    } catch (e) {
+      const err = e as Error & { conflict?: unknown; serverUpdatedAt?: number };
+      if (err.conflict) {
+        setSyncState('conflict', 'Cloud save is newer — Account → Pull cloud');
+      } else if ((e as Error).message?.includes('offline')) {
+        setSyncState('offline');
+      } else {
+        setSyncState('error', 'Sync failed — will retry');
+      }
     }
   }
 
@@ -967,15 +983,26 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
       this.refreshHud();
       this.checkQuests();
     });
-    this.ui.panelHost.querySelector('#sellGo')!.addEventListener('click', () => {
+    this.ui.panelHost.querySelector('#sellGo')!.addEventListener('click', async () => {
       const n = (this.ui.panelHost.querySelector('#sellName') as HTMLInputElement).value;
       const p = (this.ui.panelHost.querySelector('#sellPrice') as HTMLInputElement).value;
       const em = (this.ui.panelHost.querySelector('#sellEmail') as HTMLInputElement).value;
       if (!n || !p || !em) return this.toast('Fill all fields');
-      emitEvent(this.save(), 'sell_submit', { n, p, em: em.replace(/(.{2}).+(@.+)/, '$1***$2') });
-      writeSave(this.save());
-      this.toast('Submitted for review');
-      sfx.win();
+      if (!getToken()) return this.toast('Sign in to submit offers');
+      try {
+        await api.submitSeller(n, p, em);
+        emitEvent(this.save(), 'sell_submit', {
+          n,
+          p,
+          em: em.replace(/(.{2}).+(@.+)/, '$1***$2'),
+        });
+        writeSave(this.save());
+        track('seller_submit_client', { n });
+        this.toast('Submitted for review');
+        sfx.win();
+      } catch (e) {
+        this.toast((e as Error).message || 'Submit failed');
+      }
     });
   }
 
@@ -1047,17 +1074,17 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
     const authLabel = this.user
       ? `Signed in as ${this.user.name}`
       : 'Not signed in';
+    const streak = this.save().streak || 1;
     this.ui.showPanel(`
       <div class="overlay-dim">
         <div class="card pop" style="max-width:420px;width:100%;padding:20px">
           <h2 style="margin:0 0 8px">Paused</h2>
           <p style="font-weight:700;line-height:1.5">
-            Walk up to coaches — they talk first.<br>
-            Play <b>The Feed</b> with Rell. Press <b>Puzzles</b> daily.<br>
-            Score hooks at the Signal Tower (global board when signed in).<br>
-            <b>Connect</b> walks up to other online players.
+            Drag / click-hold to walk. Press <b>Talk</b> near coaches.<br>
+            Play <b>The Feed</b>, daily <b>Puzzles</b>, and score hooks at the Tower.<br>
+            <b>Connect</b> with online players · invite friends from Account.
           </p>
-          <p class="muted" style="font-size:12px;font-weight:700">Growth Island v${APP_VERSION} · ${authLabel} · ${net.connected ? '🟢 online' : '⚪ offline'}</p>
+          <p class="muted" style="font-size:12px;font-weight:700">v${APP_VERSION} · ${authLabel} · ${net.connected ? '🟢 online' : '⚪ offline'} · 🔥 ${streak}d streak</p>
           <button class="btn" id="pResume" style="width:100%;margin-top:10px">Resume</button>
           <button class="btnG" id="pAuth" style="width:100%;margin-top:8px">${this.user ? 'Account / cloud sync' : 'Sign in / Register'}</button>
           <button class="btn2" id="pBoard" style="width:100%;margin-top:8px">Leaderboard</button>
@@ -1099,6 +1126,7 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
           <input type="password" id="authPass" placeholder="Password (min 6)" style="margin:6px 0"/>
           <button class="btn" id="authReg" style="width:100%;margin-top:8px">Create account</button>
           <button class="btn2" id="authLogin" style="width:100%;margin-top:8px">Sign in</button>
+          <button class="btn2" id="authForgot" style="width:100%;margin-top:8px">Forgot password</button>
           <button class="btn2" id="authClose" style="width:100%;margin-top:8px">Cancel</button>
           <p id="authErr" style="color:#D93B4E;font-weight:800;font-size:12px;min-height:18px"></p>
         </div>
@@ -1119,7 +1147,6 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
         g.pid = user.id;
         g.name = user.name;
         writeSave(g);
-        // merge cloud if newer
         const cloud = await this.cloudPull();
         if (cloud && (cloud.gs || 0) > (g.gs || 0)) {
           Object.assign(g, cloud);
@@ -1135,7 +1162,19 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
           y: g.y,
           house: g.house || '',
         });
+        // invite from URL
+        try {
+          const inv = sessionStorage.getItem('gi_invite');
+          if (inv) {
+            await api.claimInvite(inv);
+            sessionStorage.removeItem('gi_invite');
+            this.toast('Invite claimed — connection unlocked');
+          }
+        } catch {
+          /* */
+        }
       }
+      track('auth_success', { id: user.id });
       sfx.win();
       this.toast(`Welcome, ${user.name}`);
       this.ui.clearPanel();
@@ -1164,6 +1203,26 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
         err((e as Error).message);
       }
     });
+    this.ui.panelHost.querySelector('#authForgot')!.addEventListener('click', async () => {
+      const email = (this.ui.panelHost.querySelector('#authEmail') as HTMLInputElement).value;
+      if (!email) return err('Enter email first');
+      try {
+        const res = await api.forgot(email);
+        if (res.resetToken) {
+          // No email provider yet: use token inline
+          const code = res.resetToken;
+          const pw = (this.ui.panelHost.querySelector('#authPass') as HTMLInputElement).value;
+          if (!pw || pw.length < 6)
+            return err('Set a new password above, then tap Forgot again');
+          const reset = await api.reset(code, pw);
+          await finish(reset.token, reset.user);
+        } else {
+          err(res.message);
+        }
+      } catch (e) {
+        err((e as Error).message);
+      }
+    });
   }
 
   saveSafeName() {
@@ -1176,16 +1235,32 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
 
   openAccount() {
     this.scene?.setBlocked(true);
+    const invite = this.user?.inviteCode || '—';
+    const shareUrl =
+      (typeof location !== 'undefined' ? location.origin : '') +
+      '/?invite=' +
+      invite;
     this.ui.showPanel(`
       <div class="overlay-dim">
-        <div class="card pop" style="max-width:420px;width:100%;padding:20px">
+        <div class="card pop scroll" style="max-width:420px;width:100%;max-height:90vh;padding:20px">
           <h2 style="margin:0 0 8px">Account</h2>
-          <p style="font-weight:800">${this.user?.name}</p>
-          <p class="muted" style="font-weight:700;font-size:13px">${this.user?.email}</p>
-          <p class="muted" style="font-size:12px;font-weight:700">${net.connected ? '🟢 Multiplayer connected' : '⚪ Connecting…'}</p>
+          <p style="font-weight:800">${esc(this.user?.name || '')}</p>
+          <p class="muted" style="font-weight:700;font-size:13px">${esc(this.user?.email || '')}</p>
+          <p class="muted" style="font-size:12px;font-weight:700">${net.connected ? '🟢 Multiplayer connected' : '⚪ Offline / connecting'}</p>
+          <div class="card2" style="padding:12px;margin:10px 0">
+            <div style="font-weight:900;font-size:13px">Invite friends</div>
+            <p class="muted" style="font-size:12px;font-weight:700;margin:4px 0">Code: <b>${invite}</b></p>
+            <button class="btn2" id="accCopyInvite" style="width:100%">Copy invite link</button>
+          </div>
+          <div class="card2" style="padding:12px;margin:10px 0">
+            <div style="font-weight:900;font-size:13px">Daily streak</div>
+            <p class="muted" style="font-size:12px;font-weight:700">${this.scene ? this.save().streak || 1 : 1} day(s) · come back tomorrow for the daily board</p>
+          </div>
           <button class="btn" id="accSync" style="width:100%;margin-top:10px">Sync save to cloud</button>
-          <button class="btn2" id="accPull" style="width:100%;margin-top:8px">Pull cloud save</button>
+          <button class="btn2" id="accPull" style="width:100%;margin-top:8px">Pull cloud save (force)</button>
+          <button class="btn2" id="accShare" style="width:100%;margin-top:8px">Share my score card</button>
           <button class="btn2" id="accOut" style="width:100%;margin-top:8px">Sign out</button>
+          <button class="btn2" id="accDelete" style="width:100%;margin-top:8px;color:#D93B4E">Delete account</button>
           <button class="btn2" id="accClose" style="width:100%;margin-top:8px">Close</button>
         </div>
       </div>`);
@@ -1193,9 +1268,31 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
       this.ui.clearPanel();
       this.scene?.setBlocked(false);
     });
+    this.ui.panelHost.querySelector('#accCopyInvite')!.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        this.toast('Invite link copied');
+      } catch {
+        this.toast(shareUrl);
+      }
+    });
+    this.ui.panelHost.querySelector('#accShare')!.addEventListener('click', async () => {
+      const g = this.scene ? this.save() : null;
+      const text = `I'm ${g?.gs || 0} GS on Growth Island (${rankOf(g?.gs || 0)}). Join me: ${shareUrl}`;
+      try {
+        if (navigator.share) await navigator.share({ title: 'Growth Island', text, url: shareUrl });
+        else {
+          await navigator.clipboard.writeText(text);
+          this.toast('Share text copied');
+        }
+        track('share_card');
+      } catch {
+        /* cancelled */
+      }
+    });
     this.ui.panelHost.querySelector('#accSync')!.addEventListener('click', async () => {
       this.scene?.persist();
-      await this.cloudSync();
+      await this.cloudSyncNow();
       this.toast('Saved to cloud');
       sfx.ui();
     });
@@ -1204,7 +1301,8 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
       if (!cloud || !this.scene) return this.toast('No cloud save');
       Object.assign(this.save(), cloud);
       writeSave(this.save());
-      this.toast('Cloud save loaded — refresh island if needed');
+      setSyncState('online');
+      this.toast('Cloud save loaded');
       this.refreshHud();
       sfx.win();
     });
@@ -1216,6 +1314,20 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
       this.ui.clearPanel();
       this.scene?.setBlocked(false);
       this.refreshHud();
+    });
+    this.ui.panelHost.querySelector('#accDelete')!.addEventListener('click', async () => {
+      if (!confirm('Permanently delete your account and cloud data?')) return;
+      try {
+        await api.deleteMe();
+        setToken(null);
+        this.user = null;
+        net.disconnect();
+        this.toast('Account deleted');
+        this.ui.clearPanel();
+        this.scene?.setBlocked(false);
+      } catch (e) {
+        this.toast((e as Error).message);
+      }
     });
   }
 
@@ -1320,7 +1432,11 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
                         </button>`
                     )
                     .join('')
-                : '<p class="muted" style="font-weight:700">No one else online yet — open a second browser/profile signed in as another account.</p>'
+                : `<div class="card2" style="padding:12px;margin:8px 0">
+                    <p style="font-weight:800;margin:0 0 6px">You’re alone on the island</p>
+                    <p class="muted" style="font-size:12px;font-weight:700;margin:0 0 8px">Invite a friend — they join with your code and you connect automatically.</p>
+                    <button class="btn" id="cInvite" style="width:100%">Copy invite link</button>
+                  </div>`
             }
           </div>
           <div style="margin-top:10px">
@@ -1334,6 +1450,16 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
     this.ui.panelHost.querySelector('#cClose')!.addEventListener('click', () => {
       this.ui.clearPanel();
       this.scene?.setBlocked(false);
+    });
+    this.ui.panelHost.querySelector('#cInvite')?.addEventListener('click', async () => {
+      const code = this.user?.inviteCode || '';
+      const url = location.origin + '/?invite=' + code;
+      try {
+        await navigator.clipboard.writeText(url);
+        this.toast('Invite link copied');
+      } catch {
+        this.toast(url);
+      }
     });
     this.ui.panelHost.querySelector('#cNear')?.addEventListener('click', () => {
       if (near) {
