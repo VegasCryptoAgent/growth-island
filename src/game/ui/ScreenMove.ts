@@ -1,9 +1,12 @@
 /**
- * Screen-based movement (no arrow pad required):
- *  - Desktop: hold left mouse → walk toward cursor. Click sets a walk target.
- *  - Mobile: touch + drag on the game → virtual stick under your finger.
+ * Screen movement — the ONLY primary control path:
+ *  - Desktop: click/hold mouse → walk toward that world point (continuously while held).
+ *    Short click = walk-to target after release.
+ *  - Mobile: finger drag → virtual stick under finger (direction from touch start).
+ *    Also walks toward world point under finger when possible.
  *
- * Lives on a transparent layer over the canvas, UNDER the HUD so Talk/Menu still work.
+ * Mounted on document.body (fixed, full viewport) so it always receives input
+ * above the canvas and under HUD buttons (z-index 12 vs HUD 25).
  */
 import { MobileInput } from '../systems/MobileInput';
 
@@ -13,37 +16,33 @@ export class ScreenMove {
   layer: HTMLElement | null = null;
   ring: HTMLElement | null = null;
   knob: HTMLElement | null = null;
-  /** public so OverworldScene can branch */
   mode: Mode = 'idle';
   private pointerId: number | null = null;
   private origin = { x: 0, y: 0 };
-  /** world walk target (click-to-move on desktop) */
+  private lastClient = { x: 0, y: 0 };
+  /** world walk target */
   target: { x: number; y: number } | null = null;
-  private readonly maxR = 56;
-  private readonly dead = 10;
+  private readonly maxR = 64;
+  private readonly dead = 8;
   private active = false;
-  /** true on touch devices — public for diagnostics */
+  /** true only on real phones/tablets — NOT laptops with trackpads */
   isCoarse = false;
 
-  /** Callback: convert screen CSS px → world coords (set by OverworldScene) */
   screenToWorld: ((sx: number, sy: number) => { x: number; y: number }) | null =
     null;
 
   mount() {
     document.getElementById('gi-screen-move')?.remove();
 
-    this.isCoarse =
-      (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) ||
-      window.matchMedia('(pointer: coarse)').matches ||
-      window.matchMedia('(max-width: 900px)').matches;
+    this.isCoarse = this.detectCoarse();
 
     const layer = document.createElement('div');
     layer.id = 'gi-screen-move';
     layer.setAttribute(
       'aria-label',
       this.isCoarse
-        ? 'Drag on the island to walk'
-        : 'Click and hold toward where you want to walk'
+        ? 'Drag anywhere to walk'
+        : 'Click and hold to walk toward the cursor'
     );
     layer.innerHTML = `
       <div class="gi-move-ring" id="giMoveRing" hidden>
@@ -51,9 +50,8 @@ export class ScreenMove {
       </div>
       <div class="gi-move-hint" id="giMoveHint"></div>
     `;
-    // Sit above canvas, below HUD (#ui-root z=20)
-    document.getElementById('game-root')?.appendChild(layer) ||
-      document.body.appendChild(layer);
+    // ALWAYS on body so z-index is not trapped inside #game-root stacking context
+    document.body.appendChild(layer);
     this.layer = layer;
     this.ring = layer.querySelector('#giMoveRing');
     this.knob = layer.querySelector('#giMoveKnob');
@@ -61,15 +59,45 @@ export class ScreenMove {
     const hint = layer.querySelector('#giMoveHint') as HTMLElement | null;
     if (hint) {
       hint.textContent = this.isCoarse
-        ? 'Drag anywhere to walk'
-        : 'Click & hold to walk · click a spot to go there';
+        ? 'Drag anywhere with your finger to walk'
+        : 'Click & hold with the mouse to walk · click a spot to go there';
     }
 
     this.bind();
     this.setEnabled(false);
 
     const obs = new MutationObserver(() => this.syncEnabled());
-    obs.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    obs.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+
+    // Re-detect coarse on resize (device rotate / desktop window)
+    window.addEventListener(
+      'resize',
+      () => {
+        this.isCoarse = this.detectCoarse();
+      },
+      { passive: true }
+    );
+
+    // Expose for debug
+    (window as any).__GI_SCREEN_MOVE = this;
+  }
+
+  private detectCoarse(): boolean {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined')
+      return false;
+    // Real mobile UA only — never treat Mac trackpad maxTouchPoints as coarse
+    if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) return true;
+    try {
+      return (
+        window.matchMedia('(pointer: coarse)').matches &&
+        navigator.maxTouchPoints > 0
+      );
+    } catch {
+      return false;
+    }
   }
 
   syncEnabled() {
@@ -83,13 +111,19 @@ export class ScreenMove {
   setEnabled(on: boolean) {
     this.active = on;
     if (!this.layer) return;
+    // Force visible + hittable styles (beat any stale CSS)
     this.layer.style.display = on ? 'block' : 'none';
     this.layer.style.pointerEvents = on ? 'auto' : 'none';
+    this.layer.style.position = 'fixed';
+    this.layer.style.inset = '0';
+    this.layer.style.zIndex = '12';
+    this.layer.style.touchAction = 'none';
+    this.layer.style.cursor = on ? 'crosshair' : 'default';
     if (!on) this.reset();
     const hint = this.layer.querySelector('#giMoveHint') as HTMLElement | null;
     if (hint && on) {
       hint.classList.add('show');
-      window.setTimeout(() => hint.classList.remove('show'), 3500);
+      window.setTimeout(() => hint.classList.remove('show'), 4000);
     }
   }
 
@@ -111,19 +145,78 @@ export class ScreenMove {
   }
 
   /**
-   * Called each frame from OverworldScene to drive click-to-move target walking.
-   * Returns axes if target mode, else leaves MobileInput alone (drag already set it).
+   * Called every frame from OverworldScene.
+   * Keeps MobileInput axes live while dragging or walking to a click target.
    */
+  tick(playerX: number, playerY: number): boolean {
+    if (this.mode === 'target' && this.target) {
+      return this.applyToward(playerX, playerY, this.target.x, this.target.y, 14);
+    }
+    if (this.mode === 'drag') {
+      // Prefer world point under latest pointer
+      if (this.screenToWorld) {
+        const w = this.screenToWorld(this.lastClient.x, this.lastClient.y);
+        this.target = w;
+        // On mobile stick: blend stick direction if finger moved past deadzone
+        if (this.isCoarse) {
+          const sdx = this.lastClient.x - this.origin.x;
+          const sdy = this.lastClient.y - this.origin.y;
+          const slen = Math.hypot(sdx, sdy);
+          if (slen > this.dead) {
+            const ax = sdx / Math.max(slen, this.maxR);
+            const ay = sdy / Math.max(slen, this.maxR);
+            MobileInput.setAxes(ax, ay);
+            return true;
+          }
+        }
+        return this.applyToward(playerX, playerY, w.x, w.y, 10);
+      }
+      // Fallback: pure screen stick from origin
+      const dx = this.lastClient.x - this.origin.x;
+      const dy = this.lastClient.y - this.origin.y;
+      const len = Math.hypot(dx, dy);
+      if (len < this.dead) {
+        MobileInput.clear();
+        return true;
+      }
+      MobileInput.setAxes(dx / Math.max(len, this.maxR), dy / Math.max(len, this.maxR));
+      return true;
+    }
+    return false;
+  }
+
+  /** @deprecated use tick() */
   tickTowardTarget(playerX: number, playerY: number): boolean {
-    if (this.mode !== 'target' || !this.target) return false;
-    const dx = this.target.x - playerX;
-    const dy = this.target.y - playerY;
+    return this.tick(playerX, playerY);
+  }
+
+  /** @deprecated use tick() */
+  tickHoldToward(
+    playerX: number,
+    playerY: number,
+    cursorWorld: { x: number; y: number } | null
+  ): boolean {
+    if (cursorWorld) this.target = cursorWorld;
+    return this.tick(playerX, playerY);
+  }
+
+  private applyToward(
+    px: number,
+    py: number,
+    tx: number,
+    ty: number,
+    stopDist: number
+  ): boolean {
+    const dx = tx - px;
+    const dy = ty - py;
     const dist = Math.hypot(dx, dy);
-    if (dist < 12) {
-      this.target = null;
-      this.mode = 'idle';
+    if (dist < stopDist) {
+      if (this.mode === 'target') {
+        this.target = null;
+        this.mode = 'idle';
+      }
       MobileInput.clear();
-      return false;
+      return this.mode === 'drag'; // still "holding" even if arrived
     }
     MobileInput.setAxes(dx / dist, dy / dist);
     return true;
@@ -131,18 +224,21 @@ export class ScreenMove {
 
   private bind() {
     const el = this.layer!;
-    // Prefer pointer events (unified mouse + touch)
+
     el.addEventListener('pointerdown', (e) => this.onDown(e), { passive: false });
     el.addEventListener('pointermove', (e) => this.onMove(e), { passive: false });
     el.addEventListener('pointerup', (e) => this.onUp(e), { passive: false });
     el.addEventListener('pointercancel', (e) => this.onUp(e), { passive: false });
-    el.addEventListener('lostpointercapture', () => this.onLost());
+    el.addEventListener('lostpointercapture', () => {
+      if (this.mode === 'target') return;
+      this.endDrag(false);
+    });
 
-    // Fallback pure touch for older iOS if pointer is flaky
+    // Touch fallback (older iOS)
     el.addEventListener(
       'touchstart',
       (e) => {
-        if (e.touches.length !== 1) return;
+        if (!this.active || e.touches.length !== 1) return;
         e.preventDefault();
         const t = e.touches[0];
         this.beginDrag(t.clientX, t.clientY, t.identifier, true);
@@ -177,11 +273,36 @@ export class ScreenMove {
       },
       { passive: false }
     );
+
+    // Also capture mouse on document when drag started (prevents losing hold off-layer)
+    document.addEventListener(
+      'mousemove',
+      (e) => {
+        if (this.mode !== 'drag' || this.pointerId === null) return;
+        this.dragTo(e.clientX, e.clientY);
+      },
+      { passive: true }
+    );
+    document.addEventListener(
+      'mouseup',
+      (e) => {
+        if (this.mode !== 'drag') return;
+        this.onUp(
+          new PointerEvent('pointerup', {
+            clientX: e.clientX,
+            clientY: e.clientY,
+            pointerId: this.pointerId ?? 1,
+            pointerType: 'mouse',
+            button: 0,
+          })
+        );
+      },
+      { passive: true }
+    );
   }
 
   private onDown(e: PointerEvent) {
     if (!this.active) return;
-    // Only primary button / touch
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -190,13 +311,11 @@ export class ScreenMove {
     } catch {
       /* */
     }
-    // Treat as touch stick if coarse pointer OR explicit touch/pen
-    const isTouch =
+    const showRing =
       e.pointerType === 'touch' ||
       e.pointerType === 'pen' ||
-      this.isCoarse ||
-      (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0);
-    this.beginDrag(e.clientX, e.clientY, e.pointerId, isTouch);
+      this.isCoarse;
+    this.beginDrag(e.clientX, e.clientY, e.pointerId, showRing);
   }
 
   private onMove(e: PointerEvent) {
@@ -207,29 +326,25 @@ export class ScreenMove {
 
   private onUp(e: PointerEvent) {
     if (this.pointerId !== null && e.pointerId !== this.pointerId) return;
-    e.preventDefault();
-    const isMouse = e.pointerType === 'mouse';
-    // Desktop: short click without much drag → walk-to-point
+    e.preventDefault?.();
+    const isMouse = e.pointerType === 'mouse' || !this.isCoarse;
+    // Desktop short click → keep walking to that world point
     if (isMouse && this.mode === 'drag') {
       const moved = Math.hypot(
         e.clientX - this.origin.x,
         e.clientY - this.origin.y
       );
-      if (moved < this.dead + 4 && this.screenToWorld) {
+      if (moved < this.dead + 6 && this.screenToWorld) {
         const w = this.screenToWorld(e.clientX, e.clientY);
         this.target = w;
         this.mode = 'target';
         this.pointerId = null;
         if (this.ring) this.ring.hidden = true;
+        // tick() next frame sets axes toward target using real player position
         return;
       }
     }
     this.endDrag(isMouse);
-  }
-
-  private onLost() {
-    if (this.mode === 'target') return;
-    this.endDrag(false);
   }
 
   private beginDrag(
@@ -243,6 +358,8 @@ export class ScreenMove {
     this.target = null;
     this.origin.x = clientX;
     this.origin.y = clientY;
+    this.lastClient.x = clientX;
+    this.lastClient.y = clientY;
     MobileInput.clear();
 
     if (showRing && this.ring) {
@@ -254,85 +371,55 @@ export class ScreenMove {
       }
     }
 
-    // Desktop: start walking toward this point immediately on press
-    if (!this.isCoarse && this.screenToWorld) {
+    // Immediately set world target under press so first frame walks
+    if (this.screenToWorld) {
       this.target = this.screenToWorld(clientX, clientY);
     }
   }
 
   private dragTo(clientX: number, clientY: number) {
     if (this.mode !== 'drag') return;
+    this.lastClient.x = clientX;
+    this.lastClient.y = clientY;
 
-    const useStick =
-      this.isCoarse ||
-      (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) ||
-      !this.screenToWorld;
-
-    if (useStick && (this.isCoarse || this.ring)) {
-      // Virtual stick under finger (direction from touch start)
-      let dx = clientX - this.origin.x;
-      let dy = clientY - this.origin.y;
-      const len = Math.hypot(dx, dy);
-      if (len > this.maxR) {
-        dx = (dx / len) * this.maxR;
-        dy = (dy / len) * this.maxR;
-      }
-      const ax = Math.abs(dx) < this.dead ? 0 : dx / this.maxR;
-      const ay = Math.abs(dy) < this.dead ? 0 : dy / this.maxR;
-      MobileInput.setAxes(ax, ay);
-      if (this.knob) {
-        this.knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
-      }
-      // On hybrid: also set world target if available
-      if (this.screenToWorld && !this.isCoarse) {
-        this.target = this.screenToWorld(clientX, clientY);
-      }
-      return;
-    }
-
-    // Desktop mouse: walk toward world point under the cursor while held
+    // Live world target
     if (this.screenToWorld) {
       this.target = this.screenToWorld(clientX, clientY);
-    } else {
-      let dx = clientX - this.origin.x;
-      let dy = clientY - this.origin.y;
-      const len = Math.hypot(dx, dy) || 1;
-      MobileInput.setAxes(
-        dx / Math.max(len, this.maxR),
-        dy / Math.max(len, this.maxR)
-      );
+    }
+
+    // Stick visual + immediate axes (scene tick also refreshes)
+    const dx = clientX - this.origin.x;
+    const dy = clientY - this.origin.y;
+    let sdx = dx;
+    let sdy = dy;
+    const len = Math.hypot(sdx, sdy);
+    if (len > this.maxR) {
+      sdx = (sdx / len) * this.maxR;
+      sdy = (sdy / len) * this.maxR;
+    }
+    if (this.knob && this.ring && !this.ring.hidden) {
+      this.knob.style.transform = `translate(calc(-50% + ${sdx}px), calc(-50% + ${sdy}px))`;
+    }
+
+    // Immediate axes so movement starts even before next scene tick
+    if (this.isCoarse && len > this.dead) {
+      MobileInput.setAxes(dx / Math.max(len, this.maxR), dy / Math.max(len, this.maxR));
+    } else if (this.screenToWorld && this.target) {
+      // Desktop: axes set in tick() with player position — provisional unit toward target
+      // Use a placeholder until scene tick corrects with player pos
+      // (scene always calls tick every frame while in overworld)
+    } else if (len > this.dead) {
+      MobileInput.setAxes(dx / Math.max(len, this.maxR), dy / Math.max(len, this.maxR));
     }
   }
 
   private endDrag(_wasMouse: boolean) {
     this.pointerId = null;
     if (this.ring) this.ring.hidden = true;
-    if (this.mode === 'target') {
-      // keep walking to click target
-      return;
-    }
+    if (this.mode === 'target') return;
     this.mode = 'idle';
     this.target = null;
     MobileInput.clear();
-  }
-
-  /** Desktop: while mouse held, compute axes toward world cursor each frame */
-  tickHoldToward(
-    playerX: number,
-    playerY: number,
-    cursorWorld: { x: number; y: number } | null
-  ) {
-    if (this.mode !== 'drag' || this.isCoarse) return false;
-    if (!cursorWorld) return false;
-    const dx = cursorWorld.x - playerX;
-    const dy = cursorWorld.y - playerY;
-    const dist = Math.hypot(dx, dy);
-    if (dist < 8) {
-      MobileInput.clear();
-      return true;
-    }
-    MobileInput.setAxes(dx / dist, dy / dist);
-    return true;
   }
 }
 

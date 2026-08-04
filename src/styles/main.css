@@ -111,18 +111,20 @@ html,body,#app{
   .act{width:48px;height:48px;font-size:18px}
 }
 
-/* Screen drag / mouse-hold movement layer (over canvas, under HUD) */
+/* Screen drag / mouse-hold movement — fixed on body, above canvas (z1), under HUD (z25) */
 #game-root{z-index:1}
 #gi-screen-move{
   display:none;
-  position:absolute;
-  inset:0;
-  z-index:5;
-  touch-action:none;
+  position:fixed !important;
+  inset:0 !important;
+  z-index:12 !important;
+  touch-action:none !important;
   -webkit-user-select:none;
   user-select:none;
   cursor:crosshair;
   background:transparent;
+  /* must receive hits — never inherit pointer-events:none */
+  pointer-events:none;
 }
 body.in-game:not(.on-title):not(.overlay) #gi-screen-move{
   display:block !important;
@@ -133,6 +135,21 @@ body.on-title #gi-screen-move{
   display:none !important;
   pointer-events:none !important;
 }
+/* HUD panels must NOT cover the full screen with hits — only their chrome */
+body.in-game #ui-root{pointer-events:none !important}
+body.in-game #ui-root button,
+body.in-game #ui-root .cyber-panel,
+body.in-game #ui-root .cyber-act,
+body.in-game #ui-root .cyber-inv,
+body.in-game #ui-root .cyber-actions,
+body.in-game #ui-root .panel,
+body.in-game #ui-root #panelHost,
+body.in-game #ui-root #toastHost,
+body.in-game #ui-root .overlay-dim,
+body.in-game #ui-root .overlay-bottom,
+body.in-game #ui-root .interactive,
+body.in-game #ui-root .choice,
+body.in-game #ui-root .card{pointer-events:auto}
 body.overlay .hud{display:none!important}
 body.on-title .hud{display:none!important;visibility:hidden!important}
 

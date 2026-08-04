@@ -212,21 +212,30 @@ export class OverworldScene extends Phaser.Scene {
     console.log('[overworld] spawn player', px, py);
     if (this.textures.exists('cory')) {
       this.player = this.physics.add.sprite(px, py, 'cory');
-      this.player.setDisplaySize(56, 72);
+      // HD 3D-style hub sprite — tall full-body
+      this.player.setDisplaySize(52, 96);
+      this.player.setOrigin(0.5, 0.95);
     } else if (
       this.textures.exists('player') &&
       this.textures.get('player').has('player_0')
     ) {
       this.player = this.physics.add.sprite(px, py, 'player', 'player_0');
       this.player.setDisplaySize(40, 48);
+      this.player.setOrigin(0.5, 0.9);
     } else {
       this.player = this.physics.add.sprite(px, py, 'player');
       this.player.setDisplaySize(40, 48);
+      this.player.setOrigin(0.5, 0.9);
     }
     this.player.setCollideWorldBounds(true);
     this.player.setDepth(py);
     if (this.player.body) {
       (this.player.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+      (this.player.body as Phaser.Physics.Arcade.Body).setSize(20, 16);
+      (this.player.body as Phaser.Physics.Arcade.Body).setOffset(
+        (this.player.width - 20) / 2,
+        this.player.height - 18
+      );
     }
     this.cameras.main.centerOn(px, py);
     this.cameras.main.startFollow(this.player, true, 0.18, 0.18);
@@ -268,9 +277,9 @@ export class OverworldScene extends Phaser.Scene {
           : sheet;
       const sprite = this.add
         .sprite(wx, wy, key)
-        .setDisplaySize(useLia ? 52 : 36, useLia ? 68 : 44)
+        .setDisplaySize(useLia ? 50 : 36, useLia ? 94 : 44)
         .setDepth(wy)
-        .setOrigin(0.5, 0.9);
+        .setOrigin(0.5, 0.95);
       const label = this.add
         .text(wx, wy - 48, e.k === 'foe' ? '⚠' : '!', {
           fontFamily: 'system-ui',
@@ -348,15 +357,37 @@ export class OverworldScene extends Phaser.Scene {
       sm.screenToWorld = (clientX: number, clientY: number) => {
         const canvas = this.game.canvas as HTMLCanvasElement;
         const rect = canvas.getBoundingClientRect();
-        const sx = ((clientX - rect.left) / rect.width) * this.scale.width;
-        const sy = ((clientY - rect.top) / rect.height) * this.scale.height;
+        const rw = rect.width || 1;
+        const rh = rect.height || 1;
+        const sx = ((clientX - rect.left) / rw) * this.scale.width;
+        const sy = ((clientY - rect.top) / rh) * this.scale.height;
         const wp = this.cameras.main.getWorldPoint(sx, sy);
         return { x: wp.x, y: wp.y };
       };
-      sm.syncEnabled();
+      // HARD force controls on — never leave player stuck without input
+      document.body.classList.add('in-game', 'touch');
+      document.body.classList.remove('on-title', 'overlay');
+      sm.setEnabled?.(true);
+      sm.syncEnabled?.();
     }
     (this.app as any)?.ui?.mobile?.syncVisibility?.();
 
+    // Carve a large open plaza so the player can never spawn stuck
+    {
+      const cx = 52;
+      const cy = 38;
+      for (let dy = -8; dy <= 8; dy++) {
+        for (let dx = -8; dx <= 8; dx++) {
+          const tx = cx + dx;
+          const ty = cy + dy;
+          if (tx > 1 && ty > 1 && tx < MAP_W - 2 && ty < MAP_H - 2) {
+            this.grid[ty * MAP_W + tx] = 3;
+          }
+        }
+      }
+    }
+
+    this.blocked = false;
     this.interactGrace = 90;
 
     if (this.registry.get('intro')) {
@@ -477,6 +508,12 @@ export class OverworldScene extends Phaser.Scene {
       this.stickActive = false;
       MobileInput.clear();
       (this.app as any)?.ui?.screenMove?.reset?.();
+      (this.app as any)?.ui?.screenMove?.setOverlay?.(true);
+    } else {
+      // Re-enable mouse/finger the moment any panel closes
+      document.body.classList.remove('overlay');
+      (this.app as any)?.ui?.screenMove?.setOverlay?.(false);
+      (this.app as any)?.ui?.screenMove?.setEnabled?.(true);
     }
   }
 
@@ -572,46 +609,71 @@ export class OverworldScene extends Phaser.Scene {
     if (!this.player) return;
     if (!this.walkable) return;
     if (this.interactGrace > 0) this.interactGrace -= dtMs / 16.67;
+
+    // NPCs always animate (even when player is blocked by a panel)
+    this.tickNpcs(dtMs);
+
     if (this.blocked) {
       try {
         this.player.setVelocity(0, 0);
       } catch {
         /* */
       }
+      // still update peers / minimap while dialog open
+      this.tickPeers(dtMs);
       return;
     }
+
     let vx = 0,
       vy = 0;
-    const speed = isCoarsePointer() ? 240 : 200;
+    const speed = isCoarsePointer() ? 260 : 220;
 
-    // ScreenMove: desktop mouse-hold → walk toward cursor; click-to-move target
-    const sm = (this.app as any)?.ui?.screenMove;
-    if (sm && !this.blocked) {
-      // While mouse is held, walk toward live cursor world point
-      if (sm.mode === 'drag' && !isCoarsePointer() && sm.screenToWorld) {
-        // last pointer tracked via target set in dragTo; also re-read from pointer if any
-        if (sm.target) {
-          sm.tickHoldToward(this.player.x, this.player.y, sm.target);
-        }
-      }
-      if (sm.mode === 'target') {
-        sm.tickTowardTarget(this.player.x, this.player.y);
-      }
+    // 1) ScreenMove drives MobileInput every frame (mouse hold / finger drag / click-to-move)
+    const sm = (this.app as any)?.ui?.screenMove as
+      | { tick?: (x: number, y: number) => boolean; mode?: string; screenToWorld?: any; syncEnabled?: () => void }
+      | undefined;
+    if (sm?.tick) {
+      sm.tick(this.player.x, this.player.y);
     }
 
-    // 1) Finger-drag / mouse → MobileInput bus
+    // 2) MobileInput bus (written by ScreenMove HTML layer)
     if (MobileInput.active || MobileInput.x || MobileInput.y) {
       vx = MobileInput.x;
       vy = MobileInput.y;
     } else {
-      // 2) Keyboard still works on desktop as a backup
+      // 3) Phaser pointer backup — works if HTML layer somehow missed the event
       try {
-        if (this.cursors?.left?.isDown || this.wasd?.A?.isDown) vx -= 1;
-        if (this.cursors?.right?.isDown || this.wasd?.D?.isDown) vx += 1;
-        if (this.cursors?.up?.isDown || this.wasd?.W?.isDown) vy -= 1;
-        if (this.cursors?.down?.isDown || this.wasd?.S?.isDown) vy += 1;
+        const ptr = this.input.activePointer;
+        if (ptr && ptr.isDown && ptr.button === 0) {
+          // Ignore if pointer is over a HUD button (right/bottom chrome)
+          const sx = ptr.x;
+          const sy = ptr.y;
+          const nearHud =
+            sx > this.scale.width - 80 && sy > this.scale.height - 320;
+          if (!nearHud) {
+            const wp = this.cameras.main.getWorldPoint(ptr.x, ptr.y);
+            const dx = wp.x - this.player.x;
+            const dy = wp.y - this.player.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > 12) {
+              vx = dx / dist;
+              vy = dy / dist;
+            }
+          }
+        }
       } catch {
         /* */
+      }
+      // 4) Keyboard backup (WASD / arrows)
+      if (!vx && !vy) {
+        try {
+          if (this.cursors?.left?.isDown || this.wasd?.A?.isDown) vx -= 1;
+          if (this.cursors?.right?.isDown || this.wasd?.D?.isDown) vx += 1;
+          if (this.cursors?.up?.isDown || this.wasd?.W?.isDown) vy -= 1;
+          if (this.cursors?.down?.isDown || this.wasd?.S?.isDown) vy += 1;
+        } catch {
+          /* */
+        }
       }
     }
 
@@ -621,31 +683,35 @@ export class OverworldScene extends Phaser.Scene {
       vy /= len;
     }
 
-    // Move with BOTH physics velocity AND direct position (physics can fail silently on mobile)
+    // Position-driven movement (reliable on mobile; physics alone can fail)
     if (vx || vy) {
       const step = speed * (dtMs / 1000);
       let nx = this.player.x + vx * step;
       let ny = this.player.y + vy * step;
       const { tx, ty } = worldTile(nx, ny);
       if (!this.walkable(tx, ty)) {
-        // axis separate
         const hx = this.player.x + vx * step;
         const hy = this.player.y + vy * step;
-        const okX = this.walkable(worldTile(hx, this.player.y).tx, worldTile(hx, this.player.y).ty);
-        const okY = this.walkable(worldTile(this.player.x, hy).tx, worldTile(this.player.x, hy).ty);
+        const okX = this.walkable(
+          worldTile(hx, this.player.y).tx,
+          worldTile(hx, this.player.y).ty
+        );
+        const okY = this.walkable(
+          worldTile(this.player.x, hy).tx,
+          worldTile(this.player.x, hy).ty
+        );
         nx = okX ? hx : this.player.x;
         ny = okY ? hy : this.player.y;
       }
       this.player.setPosition(nx, ny);
       if (this.player.body) {
-        this.player.setVelocity(0, 0); // position-driven; avoid double-move
+        this.player.setVelocity(0, 0);
         (this.player.body as Phaser.Physics.Arcade.Body).reset(nx, ny);
       }
     } else if (this.player.body) {
       this.player.setVelocity(0, 0);
     }
 
-    // anims — use input axes (velocity is zeroed under position-driven move)
     const moving = !!(vx || vy);
     if (moving) {
       if (Math.abs(vx) > Math.abs(vy)) {
@@ -653,8 +719,10 @@ export class OverworldScene extends Phaser.Scene {
         this.player.setFlipX(vx < 0);
       } else if (vy < 0) {
         this.facing = 'up';
+        this.player.setFlipX(false);
       } else {
         this.facing = 'down';
+        this.player.setFlipX(false);
       }
     }
     this.player.setDepth(this.player.y);
@@ -668,15 +736,7 @@ export class OverworldScene extends Phaser.Scene {
       /* */
     }
 
-    // lerp remote peers
-    const dt = Math.min(2.5, Math.max(0.5, dtMs / 16.67));
-    for (const vis of this.peerMap.values()) {
-      vis.sprite.x = Phaser.Math.Linear(vis.sprite.x, vis.tx, 0.15 * dt);
-      vis.sprite.y = Phaser.Math.Linear(vis.sprite.y, vis.ty, 0.15 * dt);
-      vis.sprite.setDepth(vis.sprite.y);
-      vis.label.setPosition(vis.sprite.x, vis.sprite.y - 42);
-      vis.label.setDepth(vis.sprite.y + 2);
-    }
+    this.tickPeers(dtMs);
 
     // broadcast position ~8Hz
     this.netAcc += dtMs;
@@ -697,33 +757,6 @@ export class OverworldScene extends Phaser.Scene {
         this.persist();
       }
       this.app?.refreshHud();
-    }
-
-    // NPC patrol + proximity dialogue
-    for (const e of this.ents) {
-      if (!e.sprite) continue;
-      if (e.k === 'npc' || e.k === 'spot') {
-        e.patrol = (e.patrol || 0) + 0.008 * dt;
-        const ox = Math.cos(e.patrol!) * 18;
-        const oy = Math.sin(e.patrol! * 0.7) * 12;
-        const tx = e.homeX! + ox;
-        const ty = e.homeY! + oy;
-        e.sprite.x = Phaser.Math.Linear(e.sprite.x, tx, 0.02 * dt);
-        e.sprite.y = Phaser.Math.Linear(e.sprite.y, ty, 0.02 * dt);
-        e.sprite.setDepth(e.sprite.y);
-        if (e.label) {
-          e.label.setPosition(e.sprite.x, e.sprite.y - 40);
-          e.label.setDepth(e.sprite.y + 2);
-        }
-      }
-      const d = Phaser.Math.Distance.Between(
-        this.player.x,
-        this.player.y,
-        e.sprite.x,
-        e.sprite.y
-      );
-      // No auto-dialogue — mobile users must press Talk. Auto-talk froze the world.
-      if (d > 70) e.arm = true;
     }
 
     // scrolls pickup
@@ -747,8 +780,54 @@ export class OverworldScene extends Phaser.Scene {
         this.app?.refreshHud();
       }
     }
+  }
 
-    // Signals are earned via coaches, spots, and battles — not auto-pickup
+  /** Remote multiplayer peers lerp */
+  private tickPeers(dtMs: number) {
+    const dt = Math.min(2.5, Math.max(0.5, dtMs / 16.67));
+    for (const vis of this.peerMap.values()) {
+      vis.sprite.x = Phaser.Math.Linear(vis.sprite.x, vis.tx, 0.15 * dt);
+      vis.sprite.y = Phaser.Math.Linear(vis.sprite.y, vis.ty, 0.15 * dt);
+      vis.sprite.setDepth(vis.sprite.y);
+      vis.label.setPosition(vis.sprite.x, vis.sprite.y - 42);
+      vis.label.setDepth(vis.sprite.y + 2);
+    }
+  }
+
+  /** NPCs walk around their home so the hub feels alive */
+  private tickNpcs(dtMs: number) {
+    const dt = Math.min(2.5, Math.max(0.5, dtMs / 16.67));
+    for (const e of this.ents) {
+      if (!e.sprite) continue;
+      if (e.k === 'npc' || e.k === 'spot' || e.k === 'foe') {
+        // Noticeable patrol — larger radius, faster
+        e.patrol = (e.patrol || 0) + 0.022 * dt;
+        const ampX = e.k === 'foe' ? 28 : 36;
+        const ampY = e.k === 'foe' ? 18 : 24;
+        const ox = Math.cos(e.patrol!) * ampX;
+        const oy = Math.sin(e.patrol! * 0.85) * ampY;
+        const tx = e.homeX! + ox;
+        const ty = e.homeY! + oy;
+        e.sprite.x = Phaser.Math.Linear(e.sprite.x, tx, 0.06 * dt);
+        e.sprite.y = Phaser.Math.Linear(e.sprite.y, ty, 0.06 * dt);
+        // Face walk direction
+        const dx = tx - e.sprite.x;
+        if (Math.abs(dx) > 0.4) e.sprite.setFlipX(dx < 0);
+        e.sprite.setDepth(e.sprite.y);
+        if (e.label) {
+          e.label.setPosition(e.sprite.x, e.sprite.y - 48);
+          e.label.setDepth(e.sprite.y + 2);
+        }
+      }
+      const d = Phaser.Math.Distance.Between(
+        this.player.x,
+        this.player.y,
+        e.sprite.x,
+        e.sprite.y
+      );
+      // No auto-dialogue — mobile users must press Talk
+      if (d > 70) e.arm = true;
+    }
   }
 
   objectiveText(): string {

@@ -41,12 +41,19 @@ export class BootScene extends Phaser.Scene {
     this.load.image('battle-bg', 'assets/generated/battle-backdrop.jpg');
     this.load.image('ui-icons', 'assets/generated/ui-icons.png');
     this.load.image('interior-props', 'assets/generated/interior-props.png');
-    // Cyber Networking Hub (demo-aligned)
-    this.load.image('hub_bg', 'assets/generated/hub/hub-backdrop.jpg');
-    this.load.image('cory', 'assets/generated/hub/cory.png');
-    this.load.image('lia', 'assets/generated/hub/lia.png');
-    this.load.image('portrait_cory', 'assets/generated/hub/portrait-cory.png');
-    this.load.image('portrait_lia', 'assets/generated/hub/portrait-lia.png');
+    // Cyber Networking Hub — HD assets (cache-bust when art updates)
+    const HUB_V = '20260804b';
+    this.load.image('hub_bg', `assets/generated/hub/hub-backdrop.jpg?v=${HUB_V}`);
+    this.load.image('cory', `assets/generated/hub/cory.png?v=${HUB_V}`);
+    this.load.image('lia', `assets/generated/hub/lia.png?v=${HUB_V}`);
+    this.load.image(
+      'portrait_cory',
+      `assets/generated/hub/portrait-cory.png?v=${HUB_V}`
+    );
+    this.load.image(
+      'portrait_lia',
+      `assets/generated/hub/portrait-lia.png?v=${HUB_V}`
+    );
   }
 
   create() {
