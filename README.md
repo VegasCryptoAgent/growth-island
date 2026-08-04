@@ -64,38 +64,25 @@ npm start            # API + preview dist
 
 Data files (gitignored): `data/users.json`, `hooks.json`, `progress.json`, `connections.json`.
 
-## Deploy
+## Deploy (Railway)
 
-**Client:** static host `dist/` (Vercel/Netlify/etc).
+Single service: Docker builds client + runs API/WS/static.
 
-**API:** run `node server/index.mjs` on a Node host (Railway, Fly, Render, VPS). Set:
+**Required Railway variables**
 
-```
-PORT=8787
-JWT_SECRET=long-random-string
-```
+| Variable | Purpose |
+|----------|---------|
+| `JWT_SECRET` | ≥24 chars (server **exits** in production if missing) |
+| `ADMIN_KEY` | Access `/admin.html` |
+| `DATA_DIR` | Default `/app/data` — **attach a volume** here so deploys don’t wipe users |
+| `CORS_ORIGINS` | Optional comma list of allowed origins |
+| `VITE_STRIPE_*` | Build-time Payment Links (re-deploy after setting) |
 
-Point the client at the API:
+**Admin:** https://growth-island-production.up.railway.app/admin.html  
 
-```
-VITE_API_BASE=https://api.yourdomain.com
-VITE_WS_URL=wss://api.yourdomain.com/ws
-```
+**CI:** `.github/workflows/ci.yml` runs typecheck, build, Playwright smoke.
 
-Or reverse-proxy `/api` and `/ws` to the Node process and leave those empty.
-
-### Environment (optional)
-
-Copy `.env.example` → `.env`:
-
-```
-VITE_STRIPE_MASTERCLASS=https://buy.stripe.com/...
-VITE_APP_VERSION=1.0.0
-JWT_SECRET=change-me
-PORT=8787
-```
-
-Never put Stripe **secret** keys in the client.
+Copy `.env.example` for the full list. Never put Stripe **secret** keys in the client.
 
 ## What’s in the game
 
