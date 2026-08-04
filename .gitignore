@@ -8,3 +8,4 @@ data/*.json
 data/*.tmp
 # dist is built on Railway; keep out of git
 dist
+data/backups/
