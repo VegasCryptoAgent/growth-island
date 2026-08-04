@@ -515,16 +515,28 @@ setInterval(() => {
 /* ---------- production: serve Vite client from dist/ ---------- */
 const DIST = path.join(ROOT, 'dist');
 if (fs.existsSync(DIST)) {
+  // Hashed assets can be cached hard; index.html must not be (mobile was stuck on old bundles)
   app.use(
     express.static(DIST, {
-      maxAge: process.env.NODE_ENV === 'production' ? '1d' : 0,
-      index: 'index.html',
+      index: false,
+      setHeaders(res, filePath) {
+        if (filePath.endsWith('index.html')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+        } else if (/\.(js|css|png|jpg|jpeg|webp|svg|woff2?)$/i.test(filePath)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        } else {
+          res.setHeader('Cache-Control', 'public, max-age=300');
+        }
+      },
     })
   );
-  // SPA fallback — any non-API GET that didn't match a static file
+  // SPA fallback — always revalidate HTML shell
   app.use((req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
     if (req.path.startsWith('/api') || req.path.startsWith('/ws')) return next();
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
     res.sendFile(path.join(DIST, 'index.html'), (err) => {
       if (err) next(err);
     });
