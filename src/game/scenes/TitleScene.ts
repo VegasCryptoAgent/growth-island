@@ -1,11 +1,21 @@
 import Phaser from 'phaser';
 import { APP_VERSION } from '../config';
 import { HOUSES } from '../data/houses';
-import { freshSave, loadSave, writeSave, type GameSave } from '../systems/Save';
+import {
+  freshSave,
+  loadSave,
+  writeSave,
+  type GameSave,
+} from '../systems/Save';
 import { bootAudio } from '../systems/Audio';
 import { api, getToken, setToken } from '../systems/Api';
 
+/**
+ * Title + house pick use HTML overlays (not Phaser text) so mobile taps always work.
+ */
 export class TitleScene extends Phaser.Scene {
+  private uiHost: HTMLElement | null = null;
+
   constructor() {
     super('title');
   }
@@ -18,87 +28,176 @@ export class TitleScene extends Phaser.Scene {
     // soft sea bands
     for (let i = 0; i < 6; i++) {
       this.add
-        .rectangle(w / 2, h * 0.55 + i * 28, w + 40, 40, 0x6fd8ee, 0.15 + i * 0.05)
+        .rectangle(
+          w / 2,
+          h * 0.55 + i * 28,
+          w + 40,
+          40,
+          0x6fd8ee,
+          0.15 + i * 0.05
+        )
         .setScrollFactor(0);
     }
 
-    this.add
-      .text(w / 2, h * 0.22, '🏝️', { fontSize: '64px' })
-      .setOrigin(0.5);
-    this.add
-      .text(w / 2, h * 0.34, 'Growth Island', {
-        fontFamily: 'system-ui',
-        fontSize: Math.min(48, w * 0.1) + 'px',
-        color: '#123253',
-        fontStyle: 'bold',
-      })
-      .setOrigin(0.5)
-      .setStroke('#FFC53D', 6);
-    this.add
-      .text(w / 2, h * 0.42, 'a networking game', {
-        fontFamily: 'system-ui',
-        fontSize: '18px',
-        color: '#0A66C2',
-        fontStyle: 'bold',
-      })
-      .setOrigin(0.5);
-    this.add
-      .text(w / 2, h * 0.47, `v${APP_VERSION} · walk · learn · score · connect`, {
-        fontFamily: 'system-ui',
-        fontSize: '12px',
-        color: '#5C7A99',
-      })
-      .setOrigin(0.5);
+    // Hide game HUD until overworld
+    document.body.classList.add('on-title');
 
-    const mkBtn = (y: number, label: string, fill: number, onClick: () => void) => {
-      const bg = this.add
-        .rectangle(w / 2, y, Math.min(320, w - 48), 52, fill)
-        .setStrokeStyle(3, 0x123253)
-        .setInteractive({ useHandCursor: true });
-      const t = this.add
-        .text(w / 2, y, label, {
-          fontFamily: 'system-ui',
-          fontSize: '18px',
-          color: fill === 0xffffff || fill === 0xffc53d ? '#123253' : '#ffffff',
-          fontStyle: 'bold',
-        })
-        .setOrigin(0.5);
-      bg.on('pointerdown', () => {
-        bootAudio();
-        onClick();
-      });
-      return { bg, t };
-    };
+    // E2E / debug: force enter overworld via Phaser game.scene API
+    (window as unknown as { __GI_FORCE_START?: (house?: string) => string }).__GI_FORCE_START =
+      (house = 'builder') => {
+        // Absolute minimum work — everything else deferred so CDP evaluate never blocks
+        const game = this.game;
+        window.setTimeout(() => {
+          try {
+            const g = freshSave();
+            g.house = house || 'builder';
+            if (g.house === 'connector') g.items = 4;
+            g.team = ['proof'];
+            g.active = 'proof';
+            writeSave(g);
+            document.getElementById('gi-title-ui')?.remove();
+            document.body.classList.remove('on-title');
+            document.body.classList.add('in-game', 'touch');
+            game.registry.set('save', g);
+            game.registry.set('intro', false);
+            try {
+              game.scene.stop('title');
+            } catch {
+              /* */
+            }
+            game.scene.start('overworld');
+          } catch (e) {
+            console.error('[title] force start failed', e);
+            (window as any).__GI_OW_ERR = String(e);
+          }
+        }, 0);
+        return 'scheduled';
+      };
 
+    this.mountTitleUI();
+  }
+
+  private mountTitleUI() {
+    document.getElementById('gi-title-ui')?.remove();
+    const host = document.createElement('div');
+    host.id = 'gi-title-ui';
+    host.className = 'title-ui';
     const existing = loadSave();
-    let yBtn = h * 0.54;
-    mkBtn(yBtn, 'Set sail', 0x0a66c2, () => this.startNew());
-    yBtn += h * 0.09;
-    if (existing) {
-      mkBtn(yBtn, 'Continue journey', 0xffffff, () => {
-        this.registry.set('save', existing);
-        this.scene.start('overworld');
-      });
-      yBtn += h * 0.09;
-    }
-    mkBtn(yBtn, getToken() ? 'Continue with cloud' : 'Sign in / cloud save', 0xffc53d, () => {
+    host.innerHTML = `
+      <div class="title-card card">
+        <div class="title-emoji">🏝️</div>
+        <p class="title-kicker">A GROWTH ADVENTURE</p>
+        <h1 class="title-h1">Growth Island</h1>
+        <p class="title-sub">a networking game</p>
+        <p class="title-ver">v${APP_VERSION}</p>
+        <button type="button" class="btn title-btn" id="giStart">Set sail</button>
+        ${
+          existing
+            ? `<button type="button" class="btn2 title-btn" id="giContinue">Continue journey</button>`
+            : ''
+        }
+        <button type="button" class="btnG title-btn" id="giAuth">${
+          getToken() ? 'Continue with cloud' : 'Sign in / cloud save'
+        }</button>
+        <p class="title-hint">Mobile: use the arrow pad to walk · Talk to meet coaches</p>
+      </div>
+    `;
+    document.body.appendChild(host);
+    this.uiHost = host;
+
+    host.querySelector('#giStart')!.addEventListener('click', () => {
+      bootAudio();
+      this.showHousePick();
+    });
+    host.querySelector('#giContinue')?.addEventListener('click', () => {
+      bootAudio();
+      if (existing) {
+        this.enterGame(existing, false);
+      }
+    });
+    host.querySelector('#giAuth')!.addEventListener('click', () => {
+      bootAudio();
       void this.authFlow();
     });
+  }
 
-    this.add
-      .text(
-        w / 2,
-        h * 0.92,
-        'WASD / arrows · coaches greet you · Space continues · online multiplayer after sign-in',
-        {
-          fontFamily: 'system-ui',
-          fontSize: '12px',
-          color: '#5C7A99',
-          align: 'center',
-          wordWrap: { width: w - 40 },
+  private showHousePick() {
+    if (!this.uiHost) return;
+    const houses = HOUSES as {
+      id: string;
+      n: string;
+      e: string;
+      c: string;
+      perk: string;
+    }[];
+    this.uiHost.innerHTML = `
+      <div class="title-card card house-pick">
+        <p class="title-kicker">CHOOSE YOUR HOUSE</p>
+        <h2 class="title-h2">Which kind of operator are you?</h2>
+        <div class="house-list">
+          ${houses
+            .map(
+              (h) => `
+            <button type="button" class="house-btn" data-id="${h.id}" style="border-color:${h.c}">
+              <span class="house-emoji">${h.e}</span>
+              <span class="house-name" style="color:${h.c}">${h.n}</span>
+              <span class="house-perk">${h.perk}</span>
+            </button>`
+            )
+            .join('')}
+        </div>
+      </div>
+    `;
+    this.uiHost.querySelectorAll<HTMLElement>('.house-btn').forEach((btn) => {
+      const go = () => {
+        const id = btn.dataset.id || 'builder';
+        const g = freshSave();
+        g.house = id;
+        if (id === 'connector') g.items = 4;
+        g.team = ['proof'];
+        g.active = 'proof';
+        writeSave(g);
+        if (this.uiHost) {
+          this.uiHost.innerHTML = `
+            <div class="title-card card">
+              <div class="title-emoji">⛵</div>
+              <h2 class="title-h2">Sailing to the island…</h2>
+              <p class="title-hint">Loading map</p>
+            </div>`;
         }
-      )
-      .setOrigin(0.5);
+        // setTimeout yields so the loading UI paints on mobile before heavy boot
+        window.setTimeout(() => {
+          try {
+            this.enterGame(g, true);
+          } catch (err) {
+            console.error('[title] enterGame failed', err);
+            window.alert('Failed to load island — try refreshing.');
+          }
+        }, 50);
+      };
+      btn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        go();
+      });
+    });
+  }
+
+  private enterGame(save: GameSave, intro: boolean) {
+    document.getElementById('gi-title-ui')?.remove();
+    this.uiHost = null;
+    document.body.classList.remove('on-title');
+    document.body.classList.add('in-game', 'touch');
+    this.game.registry.set('save', save);
+    this.game.registry.set('intro', intro);
+    console.log('[title] starting overworld');
+    try {
+      // Prefer game-level scene start (reliable after HTML button handlers)
+      this.game.scene.start('overworld');
+    } catch (e) {
+      console.error('[title] scene.start failed', e);
+      this.scene.start('overworld');
+    }
   }
 
   async authFlow() {
@@ -106,7 +205,8 @@ export class TitleScene extends Phaser.Scene {
     if (!email) return;
     const password = window.prompt('Password (min 6)');
     if (!password) return;
-    const name = window.prompt('Display name (register only, optional)') || 'Traveller';
+    const name =
+      window.prompt('Display name (register only, optional)') || 'Traveller';
     try {
       let res;
       try {
@@ -115,78 +215,32 @@ export class TitleScene extends Phaser.Scene {
         res = await api.register(email, password, name);
       }
       setToken(res.token);
-      // prefer cloud save
       let save = loadSave();
       try {
         const cloud = await api.getProgress();
         if (cloud.save) save = cloud.save as GameSave;
-      } catch { /* */ }
+      } catch {
+        /* */
+      }
       if (!save) {
         save = freshSave();
         save.house = 'builder';
+        save.team = ['proof'];
+        save.active = 'proof';
       }
       save.pid = res.user.id;
       save.name = res.user.name;
       writeSave(save);
-      this.registry.set('save', save);
-      this.registry.set('intro', !(save.seen && save.seen.length));
-      this.scene.start('overworld');
+      this.enterGame(save, !(save.seen && save.seen.length));
     } catch (e) {
-      window.alert((e as Error).message || 'Auth failed — is the API running on :8787?');
+      window.alert(
+        (e as Error).message || 'Auth failed — is the API running?'
+      );
     }
   }
 
-  startNew() {
-    // House select
-    const w = this.scale.width;
-    const h = this.scale.height;
-    this.children.removeAll();
-    this.cameras.main.setBackgroundColor('#8FD9F2');
-    this.add
-      .text(w / 2, 48, 'Which kind of operator are you?', {
-        fontFamily: 'system-ui',
-        fontSize: '22px',
-        color: '#123253',
-        fontStyle: 'bold',
-        align: 'center',
-        wordWrap: { width: w - 40 },
-      })
-      .setOrigin(0.5, 0);
-
-    const houses = HOUSES as any[];
-    houses.forEach((hs, i) => {
-      const y = 110 + i * 88;
-      const bg = this.add
-        .rectangle(w / 2, y, Math.min(360, w - 32), 76, 0xffffff)
-        .setStrokeStyle(3, Phaser.Display.Color.HexStringToColor(hs.c).color)
-        .setInteractive({ useHandCursor: true });
-      this.add
-        .text(w / 2 - Math.min(160, w / 2 - 40), y - 18, `${hs.e}  ${hs.n}`, {
-          fontFamily: 'system-ui',
-          fontSize: '16px',
-          color: hs.c,
-          fontStyle: 'bold',
-        })
-        .setOrigin(0, 0.5);
-      this.add
-        .text(w / 2 - Math.min(160, w / 2 - 40), y + 10, hs.perk, {
-          fontFamily: 'system-ui',
-          fontSize: '12px',
-          color: '#5C7A99',
-          wordWrap: { width: Math.min(300, w - 80) },
-        })
-        .setOrigin(0, 0.5);
-      bg.on('pointerdown', () => {
-        const g: GameSave = freshSave();
-        g.house = hs.id;
-        if (hs.id === 'connector') g.items = 4;
-        g.team = ['proof'];
-        g.active = 'proof';
-        writeSave(g);
-        this.registry.set('save', g);
-        this.registry.set('intro', true);
-        this.scene.start('overworld');
-      });
-    });
+  shutdown() {
+    document.getElementById('gi-title-ui')?.remove();
+    document.body.classList.remove('on-title');
   }
 }

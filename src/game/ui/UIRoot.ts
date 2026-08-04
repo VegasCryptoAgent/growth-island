@@ -143,15 +143,33 @@ export class UIRoot {
     document.body.appendChild(pad);
     this.padEl = pad;
 
-    // Always show on touch-capable / narrow screens
+    // Show pad on touch devices, narrow screens, OR once player is in-game.
+    // Always mount + enable events; CSS hides it on title screen.
     const showPad =
       (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) ||
       window.matchMedia('(pointer: coarse)').matches ||
-      window.matchMedia('(max-width: 900px)').matches;
+      window.matchMedia('(max-width: 900px)').matches ||
+      document.body.classList.contains('in-game');
     if (showPad) {
       document.body.classList.add('touch');
       pad.style.display = 'block';
+      pad.style.visibility = 'visible';
+      pad.style.pointerEvents = 'auto';
     }
+    // Re-show pad when overworld marks body.in-game
+    const obs = new MutationObserver(() => {
+      if (
+        document.body.classList.contains('in-game') &&
+        !document.body.classList.contains('on-title') &&
+        !document.body.classList.contains('overlay')
+      ) {
+        document.body.classList.add('touch');
+        pad.style.display = 'block';
+        pad.style.visibility = 'visible';
+        pad.style.pointerEvents = 'auto';
+      }
+    });
+    obs.observe(document.body, { attributes: true, attributeFilter: ['class'] });
 
     const press = (dir: string, el: HTMLElement, e?: Event) => {
       e?.preventDefault?.();

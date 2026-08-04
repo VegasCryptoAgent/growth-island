@@ -32,4 +32,10 @@ export const MobileInput = {
   },
 };
 
+// Debug / e2e access
+if (typeof window !== 'undefined') {
+  (window as unknown as { MobileInput: typeof MobileInput }).MobileInput =
+    MobileInput;
+}
+
 export default MobileInput;

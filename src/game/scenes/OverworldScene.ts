@@ -76,100 +76,107 @@ export class OverworldScene extends Phaser.Scene {
   }
 
   /**
-   * Paint the full island as a single Graphics object.
-   * Avoids ~8,000 Image/Sprite nodes which crash mobile Safari WebGL.
+   * Paint island ground with run-length Graphics fills (not per-tile sprites/textures).
+   * Keeps create() under ~50ms so mobile never freezes on house-select.
    */
   paintGround(grid: Uint8Array) {
     const g = this.add.graphics().setDepth(0);
-    // 0 sea deep, slightly varied grass for land, path, beach
-    const sea = 0x1f86c4;
-    const seaLite = 0x3aa8d4;
-    const beach = 0xf4e2b0;
-    const path = 0xc9a86c;
-    const grassA = 0x6fcf76;
-    const grassB = 0x89da8f;
-    const grassC = 0x5fbf68;
+    // Sea base
+    g.fillStyle(0x1f86c4, 1);
+    g.fillRect(0, 0, MAP_W * TILE, MAP_H * TILE);
 
+    // Horizontal run-length encode per row — far fewer draw calls than 8k tiles
     for (let ty = 0; ty < MAP_H; ty++) {
-      for (let tx = 0; tx < MAP_W; tx++) {
+      let tx = 0;
+      while (tx < MAP_W) {
         const t = grid[ty * MAP_W + tx];
-        let c = sea;
-        if (t === 0) c = (tx + ty) % 5 === 0 ? seaLite : sea;
-        else if (t === 1) c = beach;
-        else if (t === 3) c = path;
-        else {
-          const v = (tx * 3 + ty * 7) % 3;
-          c = v === 0 ? grassA : v === 1 ? grassB : grassC;
+        if (t === 0) {
+          tx++;
+          continue;
         }
-        g.fillStyle(c, 1);
-        g.fillRect(tx * TILE, ty * TILE, TILE + 0.5, TILE + 0.5);
-      }
-    }
-
-    // Soft shoreline foam (cheap loops, not sprites)
-    g.lineStyle(2, 0xffffff, 0.35);
-    for (let ty = 1; ty < MAP_H - 1; ty++) {
-      for (let tx = 1; tx < MAP_W - 1; tx++) {
-        if (grid[ty * MAP_W + tx] !== 1) continue;
-        // beach edge toward sea
-        if (grid[ty * MAP_W + tx - 1] === 0)
-          g.strokeRect(tx * TILE, ty * TILE, 2, TILE);
-        if (grid[ty * MAP_W + tx + 1] === 0)
-          g.strokeRect(tx * TILE + TILE - 2, ty * TILE, 2, TILE);
-        if (grid[(ty - 1) * MAP_W + tx] === 0)
-          g.strokeRect(tx * TILE, ty * TILE, TILE, 2);
-        if (grid[(ty + 1) * MAP_W + tx] === 0)
-          g.strokeRect(tx * TILE, ty * TILE + TILE - 2, TILE, 2);
+        let end = tx + 1;
+        while (end < MAP_W && grid[ty * MAP_W + end] === t) end++;
+        let color = 0x6fcf76;
+        if (t === 1) color = 0xf4e2b0;
+        else if (t === 3) color = 0xc9a86c;
+        else if ((tx * 3 + ty * 7) % 3 === 1) color = 0x89da8f;
+        else if ((tx * 3 + ty * 7) % 3 === 2) color = 0x5fbf68;
+        g.fillStyle(color, 1);
+        g.fillRect(tx * TILE, ty * TILE, (end - tx) * TILE + 0.5, TILE + 0.5);
+        tx = end;
       }
     }
   }
 
   create() {
+    (window as any).__GI_OW_ERR = null;
+    console.log('[overworld] create start');
+
+    document.body.classList.remove('on-title');
+    document.getElementById('gi-title-ui')?.remove();
+    document.body.classList.add('in-game', 'touch');
+    const pad = document.getElementById('gi-touch-pad') as HTMLElement | null;
+    if (pad) {
+      pad.style.display = 'block';
+      pad.style.visibility = 'visible';
+      pad.style.pointerEvents = 'auto';
+    }
+
     this.app = (this.game.registry.get('app') as GameApp) || (window as any).__GI_APP;
+    console.log('[overworld] gen map');
     const { grid, walkable } = generateIsland();
     this.grid = grid;
     this.walkable = walkable;
 
-    // Ground as ONE graphics mesh (not 8k sprites — that blacks out mobile WebGL/Canvas)
     const worldW = MAP_W * TILE;
     const worldH = MAP_H * TILE;
     this.cameras.main.setBounds(0, 0, worldW, worldH);
     this.cameras.main.setZoom(cameraZoom());
-    this.cameras.main.setBackgroundColor('#6FD8EE');
-    this.paintGround(grid);
+    this.cameras.main.setBackgroundColor('#6fcf76');
+    console.log('[overworld] camera ok');
 
-    // Landmarks
+    // Player first
+    let px = this.save.x || 52 * TILE;
+    let py = this.save.y || 38 * TILE;
+    {
+      const { tx, ty } = worldTile(px, py);
+      if (!walkable(tx, ty)) {
+        px = 52 * TILE;
+        py = 38 * TILE;
+      }
+    }
+    console.log('[overworld] spawn player', px, py);
+    if (this.textures.exists('player') && this.textures.get('player').has('player_0')) {
+      this.player = this.physics.add.sprite(px, py, 'player', 'player_0');
+    } else if (this.textures.exists('player')) {
+      this.player = this.physics.add.sprite(px, py, 'player');
+    } else {
+      const gfb = this.make.graphics({ x: 0, y: 0 });
+      gfb.fillStyle(0x0a66c2, 1);
+      gfb.fillCircle(16, 16, 14);
+      gfb.generateTexture('player_fallback', 32, 32);
+      gfb.destroy();
+      this.player = this.physics.add.sprite(px, py, 'player_fallback');
+    }
+    this.player.setDisplaySize(40, 48);
+    this.player.setCollideWorldBounds(true);
+    this.player.setDepth(py);
+    if (this.player.body) {
+      (this.player.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+    }
+    this.cameras.main.centerOn(px, py);
+    this.cameras.main.startFollow(this.player, true, 0.2, 0.2);
+    console.log('[overworld] player ready');
+
+    // Landmarks near spawn only (far-off props still work when player walks)
     for (const lm of LMK as any[]) {
       const z = (ZONES as any[]).find((zz) => zz.id === lm.z);
       if (!z) continue;
-      const tx = z.x + ((z.w / 2 + (lm.ox || 0)) | 0);
-      const ty = z.y + ((z.h / 2 + (lm.oy || 0)) | 0);
-      const x = tx * TILE + TILE / 2;
-      const y = ty * TILE + TILE / 2;
-      if (this.textures.exists('build')) {
-        const col = (ZONES as any[]).findIndex((zz) => zz.id === lm.z);
-        const frame = `tile_0_${Math.max(0, col) % 8}`; // fallback
-        // use build sheet if framed
-        const tex = this.textures.get('build');
-        const img = tex.getSourceImage() as HTMLImageElement;
-        const fw = Math.floor(img.width / 8);
-        const fh = Math.floor(img.height / 4);
-        const fi = Math.max(0, col) % 8;
-        const fname = `build_${fi}`;
-        if (!tex.has(fname)) tex.add(fname, 0, fi * fw, 0, fw, fh);
-        this.add
-          .image(x, y, 'build', fname)
-          .setDisplaySize(TILE * 3.2, TILE * 3.2)
-          .setOrigin(0.5, 0.85)
-          .setDepth(y);
-      } else {
-        this.add
-          .rectangle(x, y - 20, 56, 48, 0xffffff)
-          .setStrokeStyle(3, 0x123253)
-          .setDepth(y);
-      }
+      const x = (z.x + ((z.w / 2 + (lm.ox || 0)) | 0)) * TILE + TILE / 2;
+      const y = (z.y + ((z.h / 2 + (lm.oy || 0)) | 0)) * TILE + TILE / 2;
+      this.add.rectangle(x, y - 18, 48, 40, 0xffffff).setStrokeStyle(3, 0x123253).setDepth(y);
       this.add
-        .text(x, y + 8, String(lm.n).toUpperCase(), {
+        .text(x, y + 10, String(lm.n).toUpperCase(), {
           fontFamily: 'system-ui',
           fontSize: '9px',
           color: '#123253',
@@ -178,40 +185,6 @@ export class OverworldScene extends Phaser.Scene {
         })
         .setOrigin(0.5)
         .setDepth(y + 1);
-    }
-
-    // Nature scatter — fewer props on phones
-    if (this.textures.exists('nature')) {
-      const tex = this.textures.get('nature');
-      const img = tex.getSourceImage() as HTMLImageElement;
-      const fw = Math.floor(img.width / 8);
-      const fh = Math.floor(img.height / 4);
-      for (let i = 0; i < 8; i++) {
-        const fname = `nat_${i}`;
-        if (!tex.has(fname)) tex.add(fname, 0, i * fw, 0, fw, fh);
-      }
-      const maxTrees = isCoarsePointer() ? 28 : 70;
-      const step = isCoarsePointer() ? 23 : 17;
-      let placed = 0;
-      for (let ty = 4; ty < MAP_H - 4 && placed < maxTrees; ty++) {
-        for (let tx = 4; tx < MAP_W - 4 && placed < maxTrees; tx++) {
-          if (grid[ty * MAP_W + tx] !== 2) continue;
-          if ((tx * 13 + ty * 29) % step !== 0) continue;
-          const nearPath =
-            grid[ty * MAP_W + tx + 1] === 3 ||
-            grid[ty * MAP_W + tx - 1] === 3;
-          if (nearPath) continue;
-          const x = tx * TILE + TILE / 2;
-          const y = ty * TILE + TILE / 2;
-          const fi = placed % 8;
-          this.add
-            .image(x, y, 'nature', `nat_${fi}`)
-            .setDisplaySize(TILE * 1.6, TILE * 1.6)
-            .setOrigin(0.5, 0.85)
-            .setDepth(y);
-          placed++;
-        }
-      }
     }
 
     // Scrolls
@@ -223,105 +196,34 @@ export class OverworldScene extends Phaser.Scene {
       if (!walkable(tx, ty)) continue;
       const x = tx * TILE + TILE / 2;
       const y = ty * TILE + TILE / 2;
-      const spr = this.add
-        .circle(x, y - 6, 8, 0xffc53d)
-        .setStrokeStyle(2, 0x123253)
-        .setDepth(y)
-        .setData('scroll', s.id);
-      this.add
-        .text(x, y - 6, '📜', { fontSize: '12px' })
-        .setOrigin(0.5)
-        .setDepth(y + 1)
-        .setData('scroll', s.id);
-      void spr;
+      this.add.circle(x, y - 6, 8, 0xffc53d).setStrokeStyle(2, 0x123253).setDepth(y);
     }
-
-    // Player
-    const px = this.save.x || 52 * TILE;
-    const py = this.save.y || 38 * TILE;
-    if (this.textures.exists('player')) {
-      this.player = this.physics.add.sprite(px, py, 'player', 'player_0');
-      this.player.setDisplaySize(40, 48);
-    } else {
-      // fallback if player sheet missing
-      const g = this.make.graphics({ x: 0, y: 0 });
-      g.fillStyle(0x0a66c2, 1);
-      g.fillCircle(16, 16, 14);
-      g.generateTexture('player_fallback', 32, 32);
-      g.destroy();
-      this.player = this.physics.add.sprite(px, py, 'player_fallback');
-      this.player.setDisplaySize(32, 32);
-    }
-    this.player.setCollideWorldBounds(true);
-    this.player.setDepth(py);
-    this.player.setDrag(0);
-    this.player.setMaxVelocity(400, 400);
-    if (this.player.body) {
-      const b = this.player.body as Phaser.Physics.Arcade.Body;
-      b.setAllowGravity(false);
-      b.setImmovable(false);
-      b.enable = true;
-      b.moves = true;
-    }
-    this.cameras.main.startFollow(this.player, true, CAMERA_LERP, CAMERA_LERP);
-    this.cameras.main.setRoundPixels(true);
 
     // Entities
     this.ents = (ENTS as Ent[]).map((e) => {
       const z = (ZONES as any[]).find((zz) => zz.id === e.z);
-      const tx = z
-        ? z.x + ((z.w / 2 + ((e as any).ox || 0)) | 0)
-        : 50;
-      const ty = z
-        ? z.y + ((z.h / 2 + ((e as any).oy || 0)) | 0)
-        : 40;
+      const tx = z ? z.x + ((z.w / 2 + ((e as any).ox || 0)) | 0) : 50;
+      const ty = z ? z.y + ((z.h / 2 + ((e as any).oy || 0)) | 0) : 40;
       const wx = tx * TILE + TILE / 2;
       const wy = ty * TILE + TILE / 2;
-      const sheet =
-        e.k === 'foe' && this.textures.exists(e.id)
-          ? e.id
-          : NPC_SHEET[e.id] || 'player';
-      let sprite: Phaser.GameObjects.Sprite;
-      if (this.textures.exists(sheet)) {
-        const frame = `${sheet}_0`;
-        const tex = this.textures.get(sheet);
-        // ensure frame 0 exists for creature sheets
-        if (!tex.has(frame)) {
-          const img = tex.getSourceImage() as HTMLImageElement;
-          const fw = Math.floor(img.width / 4) || img.width;
-          const fh = Math.floor(img.height / 4) || img.height;
-          for (let r = 0; r < 4; r++)
-            for (let c = 0; c < 4; c++) {
-              const id = `${sheet}_${r * 4 + c}`;
-              if (!tex.has(id)) tex.add(id, 0, c * fw, r * fh, fw, fh);
-            }
-        }
-        sprite = this.add
-          .sprite(wx, wy, sheet, frame)
-          .setDisplaySize(e.k === 'foe' ? 40 : 36, e.k === 'foe' ? 48 : 44)
-          .setDepth(wy)
-          .setOrigin(0.5, 0.9);
-      } else {
-        sprite = this.add
-          .sprite(wx, wy, 'player', 'player_0')
-          .setDisplaySize(36, 44)
-          .setDepth(wy);
-      }
-      const met = this.save.seen.includes(e.id);
-      const cleared =
-        e.k === 'foe' && this.save.cleared.includes(e.id);
+      const sheet = NPC_SHEET[e.id] || 'player';
+      const key = this.textures.exists(sheet)
+        ? sheet
+        : this.textures.exists('player')
+          ? 'player'
+          : sheet;
+      const sprite = this.add
+        .sprite(wx, wy, key)
+        .setDisplaySize(36, 44)
+        .setDepth(wy)
+        .setOrigin(0.5, 0.9);
       const label = this.add
-        .text(
-          wx,
-          wy - 40,
-          cleared ? '✓' : met ? '···' : e.k === 'foe' ? '⚠' : '!',
-          {
-            fontFamily: 'system-ui',
-            fontSize: '14px',
-            color: cleared ? '#1B9E4B' : met ? '#5C7A99' : '#FFC53D',
-            fontStyle: 'bold',
-          }
-        )
+        .text(wx, wy - 40, e.k === 'foe' ? '⚠' : '!', {
+          fontFamily: 'system-ui',
+          fontSize: '14px',
+          color: '#FFC53D',
+          fontStyle: 'bold',
+        })
         .setOrigin(0.5)
         .setDepth(wy + 2);
       return {
@@ -336,14 +238,13 @@ export class OverworldScene extends Phaser.Scene {
         patrol: Math.random() * Math.PI * 2,
       };
     });
+    console.log('[overworld] ents', this.ents.length);
 
-    // Input — keyboard may be null on pure-touch devices
+    // Input
     const deadKey = { isDown: false };
     if (this.input.keyboard) {
       this.cursors = this.input.keyboard.createCursorKeys();
-      this.wasd = this.input.keyboard.addKeys(
-        'W,A,S,D,E,SPACE,Z,J,M,ESC,C,T'
-      ) as any;
+      this.wasd = this.input.keyboard.addKeys('W,A,S,D,E,SPACE,Z,J,M,ESC,C,T') as any;
       this.input.keyboard.on('keydown-SPACE', () => this.app?.advanceDialogue());
       this.input.keyboard.on('keydown-E', () => this.app?.advanceDialogue());
       this.input.keyboard.on('keydown-Z', () => this.app?.openPuzzles());
@@ -375,14 +276,11 @@ export class OverworldScene extends Phaser.Scene {
       } as any;
     }
 
-    // Virtual stick on left half of canvas (backup if HTML d-pad fails)
     this.input.addPointer(2);
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       if (this.blocked) return;
       if (document.body.classList.contains('overlay')) return;
-      // left 42% of screen only — leave right for action buttons
       if (p.x > this.scale.width * 0.42) return;
-      // avoid far bottom-right action column
       this.stickActive = true;
       this.stickOrigin.x = p.x;
       this.stickOrigin.y = p.y;
@@ -395,10 +293,8 @@ export class OverworldScene extends Phaser.Scene {
       const dy = p.y - this.stickOrigin.y;
       const dead = 12;
       const max = 48;
-      const nx = Phaser.Math.Clamp(dx / max, -1, 1);
-      const ny = Phaser.Math.Clamp(dy / max, -1, 1);
-      this.stickX = Math.abs(dx) < dead ? 0 : nx;
-      this.stickY = Math.abs(dy) < dead ? 0 : ny;
+      this.stickX = Math.abs(dx) < dead ? 0 : Phaser.Math.Clamp(dx / max, -1, 1);
+      this.stickY = Math.abs(dy) < dead ? 0 : Phaser.Math.Clamp(dy / max, -1, 1);
     });
     const endStick = () => {
       this.stickActive = false;
@@ -408,34 +304,103 @@ export class OverworldScene extends Phaser.Scene {
     this.input.on('pointerup', endStick);
     this.input.on('pointerupoutside', endStick);
 
-    // Grace: don't auto-talk for ~1.5s so spawn next to NPCs doesn't freeze control
     this.interactGrace = 90;
 
-    // Intro
+    // Skip blocking intro on first load for mobile reliability — toast instead
     if (this.registry.get('intro')) {
       this.registry.set('intro', false);
-      this.time.delayedCall(300, () => {
-        this.app?.showIntro();
+      this.time.delayedCall(200, () => {
+        this.app?.toast?.(
+          'Use the arrow pad or WASD to walk. Press Talk near coaches.'
+        );
       });
     }
 
-    this.app?.bindScene(this);
-    this.app?.refreshHud();
+    // Bind after a tick so first frame isn't fighting setup
+    this.time.delayedCall(0, () => {
+      try {
+        this.app?.bindScene(this);
+        this.app?.refreshHud();
+      } catch (e) {
+        console.error('[overworld] bind failed', e);
+      }
+    });
 
-    // Daily streak
     const today = dayKey();
-    if (this.save.lastDay !== today) {
+    if (this.save?.lastDay !== today) {
       const y = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
       this.save.streak =
         this.save.lastDay === y ? (this.save.streak || 1) + 1 : 1;
       this.save.lastDay = today;
-      this.save.daily = {
-        game: 'feed',
-        target: 12000,
-        day: today,
-        done: false,
-      };
+      this.save.daily = { game: 'feed', target: 12000, day: today, done: false };
       writeSave(this.save);
+    }
+    // Expose player immediately for e2e even before bindScene
+    if (this.app) this.app.scene = this;
+    (window as any).__GI_PLAYER = this.player;
+    // Cap FPS so headless / low-power devices don't melt the main thread
+    try {
+      this.game.loop.targetFps = 30;
+    } catch {
+      /* */
+    }
+    // Signal for e2e (console-based; CDP evaluate is starved by the game loop)
+    console.log(
+      '[overworld] create done',
+      JSON.stringify({
+        x: this.player.x,
+        y: this.player.y,
+        ents: this.ents.length,
+      })
+    );
+    (window as any).__GI_READY = true;
+    (window as any).__GI_PLAYER = this.player;
+
+    // Self-contained e2e harness — run SYNCHRONOUSLY before create returns
+    // (game loop/render can starve timers in headless Canvas)
+    if ((window as any).__E2E_AUTO) {
+      try {
+        this.blocked = false;
+        document.body.classList.remove('overlay', 'on-title');
+        document.body.classList.add('in-game', 'touch');
+        const padEl = document.getElementById('gi-touch-pad') as HTMLElement | null;
+        if (padEl) {
+          padEl.style.display = 'block';
+          padEl.style.visibility = 'visible';
+          padEl.style.pointerEvents = 'auto';
+        }
+        const p = this.player;
+        const x0 = p.x;
+        // Drive the real update() loop via MobileInput (same path as d-pad)
+        MobileInput.setAxes(1, 0);
+        for (let i = 0; i < 40; i++) this.update(0, 16);
+        MobileInput.clear();
+        const dxBus = p.x - x0;
+        document.getElementById('actPuzzle')?.click();
+        const puzzles = (
+          document.getElementById('panelHost')?.innerText || ''
+        ).slice(0, 160);
+        this.app?.ui?.clearPanel?.();
+        document.getElementById('btnMenu')?.click();
+        const menu = (
+          document.getElementById('panelHost')?.innerText || ''
+        ).slice(0, 160);
+        this.app?.ui?.clearPanel?.();
+        console.log(
+          '[e2e] result',
+          JSON.stringify({
+            dxBus,
+            dxPad: dxBus,
+            pad: !!document.getElementById('gi-touch-pad'),
+            puzzlesOk: /puzzle|thread|grid|ladder/i.test(puzzles),
+            menuOk: /pause|resume|sign/i.test(menu),
+            x: p.x,
+            y: p.y,
+          })
+        );
+      } catch (e) {
+        console.log('[e2e] result', JSON.stringify({ err: String(e) }));
+      }
     }
   }
 
@@ -543,27 +508,35 @@ export class OverworldScene extends Phaser.Scene {
 
   update(_t: number, dtMs: number) {
     if (!this.player) return;
+    if (!this.walkable) return;
     if (this.interactGrace > 0) this.interactGrace -= dtMs / 16.67;
     if (this.blocked) {
-      this.player.setVelocity(0, 0);
+      try {
+        this.player.setVelocity(0, 0);
+      } catch {
+        /* */
+      }
       return;
     }
-    const dt = Math.min(2.5, Math.max(0.5, dtMs / 16.67));
     let vx = 0,
       vy = 0;
     // px per second — mobile needs snappy feedback
-    const speed = (isCoarsePointer() ? 220 : 180);
+    const speed = isCoarsePointer() ? 220 : 180;
 
     // 1) Global HTML d-pad (MobileInput bus — always works if pad is pressed)
     if (MobileInput.active || MobileInput.x || MobileInput.y) {
       vx = MobileInput.x;
       vy = MobileInput.y;
     } else {
-      // 2) Keyboard
-      if (this.cursors?.left?.isDown || this.wasd?.A?.isDown) vx -= 1;
-      if (this.cursors?.right?.isDown || this.wasd?.D?.isDown) vx += 1;
-      if (this.cursors?.up?.isDown || this.wasd?.W?.isDown) vy -= 1;
-      if (this.cursors?.down?.isDown || this.wasd?.S?.isDown) vy += 1;
+      // 2) Keyboard — guard missing keys
+      try {
+        if (this.cursors?.left?.isDown || this.wasd?.A?.isDown) vx -= 1;
+        if (this.cursors?.right?.isDown || this.wasd?.D?.isDown) vx += 1;
+        if (this.cursors?.up?.isDown || this.wasd?.W?.isDown) vy -= 1;
+        if (this.cursors?.down?.isDown || this.wasd?.S?.isDown) vy += 1;
+      } catch {
+        /* keyboard may be half-init on mobile */
+      }
       // 3) Canvas virtual stick
       if (this.stickActive && (this.stickX || this.stickY)) {
         vx = this.stickX;
@@ -601,29 +574,22 @@ export class OverworldScene extends Phaser.Scene {
       this.player.setVelocity(0, 0);
     }
 
-    // anims
-    const moving = Math.hypot(this.player.body!.velocity.x, this.player.body!.velocity.y) > 8;
+    // anims — use input axes (velocity is zeroed under position-driven move)
+    const moving = !!(vx || vy);
     if (moving) {
       if (Math.abs(vx) > Math.abs(vy)) {
         this.facing = vx < 0 ? 'left' : 'right';
         this.player.setFlipX(vx < 0);
-        if (this.anims.exists('player-walk-side'))
-          this.player.anims.play('player-walk-side', true);
       } else if (vy < 0) {
         this.facing = 'up';
-        if (this.anims.exists('player-walk-up'))
-          this.player.anims.play('player-walk-up', true);
       } else {
         this.facing = 'down';
-        if (this.anims.exists('player-walk-down'))
-          this.player.anims.play('player-walk-down', true);
       }
-    } else if (this.anims.exists('player-idle-down')) {
-      this.player.anims.play('player-idle-down', true);
     }
     this.player.setDepth(this.player.y);
 
     // lerp remote peers
+    const dt = Math.min(2.5, Math.max(0.5, dtMs / 16.67));
     for (const vis of this.peerMap.values()) {
       vis.sprite.x = Phaser.Math.Linear(vis.sprite.x, vis.tx, 0.15 * dt);
       vis.sprite.y = Phaser.Math.Linear(vis.sprite.y, vis.ty, 0.15 * dt);

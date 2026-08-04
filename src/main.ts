@@ -26,7 +26,8 @@ function viewSize() {
 const { w: startW, h: startH } = viewSize();
 
 const game = new Phaser.Game({
-  type: isMobile ? Phaser.CANVAS : Phaser.AUTO,
+  // Canvas everywhere: WebGL black-screens / freezes some mobile + headless CI
+  type: Phaser.CANVAS,
   parent: gameRoot,
   backgroundColor: COLORS.sky,
   scale: {
@@ -35,6 +36,12 @@ const game = new Phaser.Game({
     height: startH,
     autoCenter: Phaser.Scale.CENTER_BOTH,
     expandParent: true,
+  },
+  // forceSetTimeOut: lets browser/CDP interleave work (rAF alone starves Playwright)
+  fps: {
+    target: isMobile ? 30 : 40,
+    forceSetTimeOut: true,
+    smoothStep: false,
   },
   physics: {
     default: 'arcade',

@@ -27,6 +27,7 @@ import { net } from './systems/Net';
 import { openBattle } from './ui/Battle';
 import { esc } from './util/escape';
 import { MONS } from './data/mons';
+import { MobileInput } from './systems/MobileInput';
 
 type DNode =
   | { s: string }
@@ -209,16 +210,23 @@ export class GameApp {
             Coaches hand you things you can use on the Mainland today.
           </p>
           <p class="muted" style="font-weight:700;font-size:13px;margin-bottom:16px">
-            Walk up to people. They talk first. Your first Signal is already with you.
+            Use the arrow pad (or WASD) to walk. Walk up to a coach and press Talk.
+            Your first Signal is already with you.
           </p>
-          <button class="btn" id="introGo" style="width:100%">Step onto the island</button>
+          <button type="button" class="btn" id="introGo" style="width:100%">Step onto the island</button>
         </div>
       </div>`);
-    this.ui.panelHost.querySelector('#introGo')!.addEventListener('click', () => {
+    const go = () => {
       this.ui.clearPanel();
       this.scene?.setBlocked(false);
+      MobileInput.clear();
       this.refreshHud();
-    });
+    };
+    this.ui.panelHost.querySelector('#introGo')!.addEventListener('click', go);
+    // Never trap mobile forever if the button is hard to hit
+    window.setTimeout(() => {
+      if (this.scene?.isBlocked()) go();
+    }, 12000);
   }
 
   talkOrAdvance() {

@@ -30,13 +30,19 @@ html,body,#app{
   user-select:none;
 }
 #ui-root{position:fixed;inset:0;z-index:20;pointer-events:none;height:100%;height:100dvh}
-/* Critical: d-pad lives outside .hud — must re-enable hits or mobile cannot move */
+/* Critical: re-enable hits on interactive UI under pointer-events:none root */
 #ui-root .panel,
 #ui-root .hud,
+#ui-root #panelHost,
+#ui-root #toastHost,
+#ui-root .overlay-dim,
+#ui-root .overlay-bottom,
 #ui-root .touch-pad,
 #ui-root button,
 #ui-root .pad-btn,
-#ui-root .interactive{pointer-events:auto}
+#ui-root .interactive,
+#ui-root .choice,
+#ui-root .card{pointer-events:auto}
 
 .card{background:#fff;border:2px solid #123253;border-radius:20px;
   box-shadow:0 6px 0 #123253,0 18px 34px -18px rgba(18,50,83,.55)}
@@ -99,10 +105,16 @@ html,body,#app{
   pointer-events:auto !important;
 }
 body.touch .touch-pad,
-body.touch #gi-touch-pad{display:block !important}
+body.touch #gi-touch-pad,
+body.in-game .touch-pad,
+body.in-game #gi-touch-pad{display:block !important}
 body.overlay .touch-pad,
 body.overlay #gi-touch-pad{visibility:hidden !important;pointer-events:none !important}
 body.overlay .hud{display:none!important}
+/* While title is up, never show game chrome even with in-game race */
+body.on-title.in-game .touch-pad,
+body.on-title.in-game #gi-touch-pad,
+body.on-title .hud{display:none!important;visibility:hidden!important}
 .touch-pad .pad-btn{
   position:absolute;
   width:52px;
@@ -139,3 +151,35 @@ body.overlay .hud{display:none!important}
 textarea,input[type=text]{width:100%;background:#FFFDF4;border:2px solid #123253;border-radius:14px;
   padding:11px 13px;font:inherit;font-weight:600;resize:vertical;outline:none}
 textarea:focus,input:focus{border-color:#0A66C2;box-shadow:0 0 0 3px #BEE0FA}
+
+/* Title / house pick — HTML so mobile taps always register */
+body.on-title .hud,
+body.on-title #gi-touch-pad,
+body.on-title .touch-pad{display:none!important;visibility:hidden!important}
+.title-ui{
+  position:fixed;inset:0;z-index:10000;
+  display:flex;align-items:center;justify-content:center;
+  padding:16px;pointer-events:auto;
+  background:linear-gradient(180deg,rgba(191,234,245,.2),rgba(191,234,245,.85));
+  overflow:auto;-webkit-overflow-scrolling:touch;
+}
+.title-card{width:min(420px,100%);padding:22px 18px;text-align:center}
+.title-emoji{font-size:56px;line-height:1;margin-bottom:6px}
+.title-kicker{font-size:11px;letter-spacing:.3em;font-weight:900;color:#0A66C2;margin:0}
+.title-h1{font-size:clamp(32px,10vw,48px);font-weight:900;margin:6px 0 4px;color:#123253;
+  text-shadow:0 4px 0 #FFC53D}
+.title-h2{font-size:20px;font-weight:900;margin:8px 0 14px}
+.title-sub{font-size:16px;font-weight:800;color:#0A66C2;margin:0 0 4px}
+.title-ver{font-size:11px;font-weight:700;color:#5C7A99;margin:0 0 16px}
+.title-btn{width:100%;margin-top:10px;padding:14px 16px;font-size:16px}
+.title-hint{font-size:12px;font-weight:700;color:#5C7A99;margin:16px 0 0;line-height:1.4}
+.house-list{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+.house-btn{
+  display:grid;grid-template-columns:40px 1fr;grid-template-rows:auto auto;gap:2px 10px;
+  text-align:left;padding:12px;border:3px solid #123253;border-radius:16px;
+  background:#fff;box-shadow:0 4px 0 #9FB6CE;cursor:pointer;font:inherit;
+}
+.house-btn:active{transform:translateY(2px);box-shadow:0 1px 0 #9FB6CE}
+.house-emoji{grid-row:1/3;font-size:28px;align-self:center}
+.house-name{font-weight:900;font-size:15px}
+.house-perk{font-size:12px;font-weight:700;color:#5C7A99;grid-column:2}
