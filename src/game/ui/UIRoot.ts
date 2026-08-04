@@ -88,7 +88,7 @@ export class UIRoot {
 
         <div class="cyber-actions">
           <button type="button" class="cyber-act" id="actTalk" title="Talk"><span>💬</span><b>Talk</b></button>
-          <button type="button" class="cyber-act" id="actConnect" title="Connect"><span>🤝</span><b>Connect</b></button>
+          <button type="button" class="cyber-act" id="actConnect" title="Hub — all features"><span>🌐</span><b>Hub</b></button>
           <button type="button" class="cyber-act" id="actPuzzle" title="Puzzles"><span>🧩</span><b>Puzzles</b></button>
           <button type="button" class="cyber-act" id="btnJournal" title="Journal"><span>📓</span><b>Journal</b></button>
           <button type="button" class="cyber-act" id="btnMenu" title="Menu"><span>☰</span><b>Menu</b></button>
@@ -123,19 +123,28 @@ export class UIRoot {
     const bind = (sel: string, fn: () => void) => {
       const el = this.root.querySelector(sel);
       if (!el) return;
-      el.addEventListener('click', (e) => {
+      let lock = false;
+      const run = (e: Event) => {
         e.preventDefault();
-        fn();
-      });
-      el.addEventListener(
-        'touchend',
-        (e) => {
-          e.preventDefault();
-          e.stopPropagation();
+        e.stopPropagation();
+        if (lock) return;
+        lock = true;
+        try {
           fn();
-        },
-        { passive: false }
-      );
+        } finally {
+          window.setTimeout(() => {
+            lock = false;
+          }, 300);
+        }
+      };
+      el.addEventListener('click', run);
+      el.addEventListener('touchend', run, { passive: false });
+      el.addEventListener('pointerup', (e) => {
+        // Primary pointer only — avoid double-fire with click
+        if ((e as PointerEvent).pointerType === 'touch') return;
+        if ((e as PointerEvent).button !== 0) return;
+        run(e);
+      });
     };
     bind('#actConnect', () => this.handlers.onConnect());
     bind('#actTalk', () => this.handlers.onTalk());
@@ -212,11 +221,17 @@ export class UIRoot {
   clearPanel() {
     this.panelHost.innerHTML = '';
     this.setOverlay(false);
+    document.body.classList.remove('overlay');
   }
 
   showPanel(html: string) {
     this.setOverlay(true);
+    document.body.classList.add('overlay');
     this.panelHost.innerHTML = html;
+    // Ensure panel is on top and hittable (movement layer must not steal taps)
+    this.panelHost.style.pointerEvents = 'auto';
+    this.panelHost.style.zIndex = '60';
+    this.panelHost.style.position = 'relative';
   }
 
   /**

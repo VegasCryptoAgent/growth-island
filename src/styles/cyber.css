@@ -114,11 +114,34 @@ body.cyber-hub #game-root{
   .cyber-actions{right:8px;bottom:max(64px, env(safe-area-inset-bottom))}
 }
 
+/* Dialogue / feature panels must sit above the movement layer */
+.dlg-layer,
+#panelHost .overlay-dim{
+  z-index:60 !important;
+  pointer-events:auto !important;
+}
+#panelHost .overlay-dim .card,
+#panelHost .overlay-dim .cyber-dlg,
+#panelHost .overlay-dim button,
+#panelHost .overlay-dim .choice{
+  pointer-events:auto !important;
+  position:relative;
+  z-index:61;
+}
+
 /* ===== Dual-portrait cyber dialogue ===== */
 .cyber-dlg{
   position:fixed;left:50%;bottom:72px;transform:translateX(-50%);
   width:min(920px,96vw);z-index:50;pointer-events:auto;
   display:grid;grid-template-columns:110px 1fr 130px;gap:10px;align-items:end;
+}
+@media (max-width:680px){
+  .cyber-dlg{
+    grid-template-columns:1fr;
+    bottom:auto;
+  }
+  .cyber-dlg-actions{flex-direction:row;flex-wrap:wrap}
+  .cyber-dlg-actions button{flex:1;min-width:90px}
 }
 .cyber-dlg-portrait{
   background:var(--cyber-panel);

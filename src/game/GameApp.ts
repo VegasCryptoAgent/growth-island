@@ -247,10 +247,14 @@ export class GameApp {
 
   talkOrAdvance() {
     if (this.dlg) return this.advanceDialogue();
-    // Generous radius on mobile — thumb + d-pad makes precise approach hard
-    const e = this.scene?.nearestEnt(96);
+    // Generous radius on mobile — thumb + finger-drag makes precise approach hard
+    const e = this.scene?.nearestEnt(110);
     if (e) this.startDialogue(e);
-    else this.toast('Walk closer to a coach, then press Talk');
+    else {
+      this.toast('No one nearby — open Connect for the Hub directory');
+      // Soft fallback: open hub so features are never unreachable
+      this.openConnect();
+    }
   }
 
   startDialogue(e: any) {
@@ -258,59 +262,23 @@ export class GameApp {
     const g = this.save();
     const met = g.seen.includes(e.id);
     this.scene.setBlocked(true);
+    document.body.classList.add('overlay');
     sfx.ui();
 
-    // Demo-style hub contact: dual portrait + Connect / Message
-    if (e.k === 'npc' || e.k === 'spot') {
-      const line = met
-        ? e.id === 'g_scroll'
-          ? 'Ready for another round in the feed?'
-          : `Great to see you again. Let's keep building.`
-        : e.id === 'ivy' || e.n === 'Lia'
-          ? "Hi! It's great to connect with you here. Let's share some valuable ideas about development."
-          : (e.script?.[0]?.s as string) ||
-            `Hi! I'm ${e.n}. ${e.role || 'Happy to connect.'}`;
-
-      // Speech bubble over NPC
-      try {
-        const cam = this.scene.cameras.main;
-        const sp = e.sprite;
-        if (sp) {
-          const sx = (sp.x - cam.scrollX) * cam.zoom;
-          const sy = (sp.y - 60 - cam.scrollY) * cam.zoom;
-          this.ui.showSpeechBubble(sx, sy, '!');
-        }
-      } catch {
-        /* */
+    // Speech bubble over NPC
+    try {
+      const cam = this.scene.cameras.main;
+      const sp = e.sprite;
+      if (sp) {
+        const sx = (sp.x - cam.scrollX) * cam.zoom;
+        const sy = (sp.y - 60 - cam.scrollY) * cam.zoom;
+        this.ui.showSpeechBubble(sx, sy, '!');
       }
-
-      this.dlg = { e, q: [{ s: line }], asked: [] };
-      this.ui.showCyberDialogue({
-        speakerName: e.n === 'Lia' || e.id === 'ivy' ? 'Cory' : e.n || 'Contact',
-        text: line,
-        playerPortrait: './assets/generated/hub/portrait-cory.png',
-        npcPortrait:
-          e.id === 'ivy' || e.n === 'Lia'
-            ? './assets/generated/hub/portrait-lia.png'
-            : './assets/generated/hub/portrait-lia.png',
-        onConnect: () => this.hubConnect(e),
-        onMessage: () => {
-          this.toast('Message drafted — keep the conversation going.');
-          sfx.ui();
-        },
-        onContinue: () => {
-          if (!g.seen.includes(e.id)) g.seen.push(e.id);
-          writeSave(g);
-          this.finishDlg();
-        },
-      });
-      if (!g.seen.includes(e.id)) {
-        g.seen.push(e.id);
-        writeSave(g);
-      }
-      return;
+    } catch {
+      /* */
     }
 
+    // FULL mentor / spot / foe scripts — never short-circuit into a dead-end UI
     let queue: DNode[] = [];
     if (met && e.k === 'foe' && g.cleared.includes(e.id)) {
       queue = [
@@ -320,8 +288,26 @@ export class GameApp {
             : `${e.n} rises again, edged in gold. "You beat the version of me that was holding back."`,
         },
       ];
+    } else if (met && (e.k === 'npc' || e.k === 'spot') && e.script?.length) {
+      // Returning visit: short greeting then jump into choices / workshop
+      const greet =
+        e.id === 'g_scroll'
+          ? 'Ready for another round in the Feed?'
+          : e.id === 'ivy' || e.n === 'Lia'
+            ? "Welcome back. Let's keep building your profile and network."
+            : `Good to see you again. ${e.role || ''}`.trim();
+      // Keep full script so tools/games/puzzle choices still unlock
+      queue = [{ s: greet }, ...(e.script as DNode[]).slice(1)];
+      if (queue.length < 2) queue = (e.script || [{ s: greet }]) as DNode[];
     } else {
-      queue = (e.script || [{ s: e.n + ' nods.' }]) as DNode[];
+      queue = (e.script || [
+        { s: `${e.n || 'Someone'}: ${e.role || 'Happy to help.'}` },
+      ]) as DNode[];
+    }
+
+    // Append ask-node for mentors who have Q&A bank
+    if (e.ask?.length && !queue.some((n) => n && 'askNode' in n)) {
+      queue = [...queue, { askNode: true as const }];
     }
 
     this.dlg = { e, q: queue.slice(), asked: [] };
@@ -366,6 +352,27 @@ export class GameApp {
     this.checkQuests();
   }
 
+  /** Wire click + touchend so mobile taps always fire once */
+  private bindTap(el: Element | null, fn: () => void) {
+    if (!el) return;
+    let lock = false;
+    const run = (ev: Event) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (lock) return;
+      lock = true;
+      try {
+        fn();
+      } finally {
+        window.setTimeout(() => {
+          lock = false;
+        }, 280);
+      }
+    };
+    el.addEventListener('click', run);
+    el.addEventListener('touchend', run, { passive: false });
+  }
+
   renderDlg(): void {
     if (!this.dlg) return;
     const { e, q } = this.dlg;
@@ -374,6 +381,11 @@ export class GameApp {
     const n = q[0];
     const name = e.n || 'Someone';
     const role = e.role || '';
+    const isLia = e.id === 'ivy' || e.n === 'Lia';
+    const portrait = isLia
+      ? './assets/generated/hub/portrait-lia.png'
+      : './assets/generated/hub/portrait-cory.png';
+    const canConnect = e.k === 'npc' || e.k === 'spot';
 
     if (n && 'askNode' in n) {
       const asked = this.dlg.asked || [];
@@ -385,21 +397,21 @@ export class GameApp {
         return this.renderDlg();
       }
       this.ui.showPanel(`
-        <div class="overlay-bottom">
-          <div class="card pop" style="max-width:720px;margin:0 auto;padding:16px">
-            <div style="font-weight:900;margin-bottom:4px">${esc(name)}</div>
+        <div class="overlay-dim dlg-layer" style="align-items:flex-end;padding-bottom:24px">
+          <div class="card pop" style="max-width:720px;width:100%;margin:0 auto;padding:16px">
+            <div style="font-weight:900;margin-bottom:4px;color:#0A66C2">${esc(name)} · Ask me</div>
             <p style="font-weight:700;margin:0 0 10px">${asked.length ? 'Anything else?' : 'Ask me anything before you go.'}</p>
             ${left
               .map(
                 (x: { a: { q: string }; i: number }) =>
-                  `<button class="choice" data-ask="${x.i}">${esc(x.a.q)}</button>`
+                  `<button type="button" class="choice" data-ask="${x.i}">${esc(x.a.q)}</button>`
               )
               .join('')}
-            <button class="btn2" id="askDone" style="width:100%;margin-top:8px">That's all</button>
+            <button type="button" class="btn2" id="askDone" style="width:100%;margin-top:8px">That's all — continue</button>
           </div>
         </div>`);
       this.ui.panelHost.querySelectorAll('[data-ask]').forEach((b) =>
-        b.addEventListener('click', () => {
+        this.bindTap(b, () => {
           const i = +(b as HTMLElement).dataset.ask!;
           this.dlg!.asked = [...(this.dlg!.asked || []), i];
           const answers = (e.ask[i].a || []).map((s: string) => ({ s }));
@@ -409,7 +421,7 @@ export class GameApp {
           this.renderDlg();
         })
       );
-      this.ui.panelHost.querySelector('#askDone')!.addEventListener('click', () => {
+      this.bindTap(this.ui.panelHost.querySelector('#askDone'), () => {
         this.dlg!.q = this.dlg!.q.filter((x) => !('askNode' in x));
         sfx.ui();
         this.renderDlg();
@@ -419,25 +431,31 @@ export class GameApp {
 
     if (n && 'q' in n && n.o) {
       this.ui.showPanel(`
-        <div class="overlay-bottom">
-          <div class="card pop" style="max-width:720px;margin:0 auto;padding:16px">
-            <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px">
-              <div style="width:48px;height:48px;border-radius:14px;background:${esc(e.c || '#0A66C2')}22;border:2px solid #123253;display:grid;place-items:center;font-weight:900">${esc(name[0] || '?')}</div>
-              <div><div style="font-weight:900">${esc(name)}</div><div class="muted" style="font-size:11px;font-weight:700">${esc(role)}</div></div>
+        <div class="overlay-dim dlg-layer" style="align-items:flex-end;padding-bottom:20px">
+          <div class="cyber-dlg pop" style="position:relative;left:auto;bottom:auto;transform:none;width:min(920px,100%)">
+            <div class="cyber-dlg-portrait">
+              <img src="${portrait}" alt="${esc(name)}" />
             </div>
-            <p style="font-weight:700;margin:0 0 10px">${esc(n.q)}</p>
-            <div id="dlgChoices">
-              ${n.o
-                .map(
-                  (o, i) =>
-                    `<button class="choice" data-i="${i}">${esc(o.say)}</button>`
-                )
-                .join('')}
+            <div class="cyber-dlg-body">
+              <div class="cyber-dlg-name">${esc(name)} · ${esc(role)}</div>
+              <div class="cyber-dlg-text">${esc(n.q)}</div>
+              <div id="dlgChoices" style="margin-top:10px">
+                ${n.o
+                  .map(
+                    (o, i) =>
+                      `<button type="button" class="choice" data-i="${i}" style="margin:6px 0">${esc(o.say)}</button>`
+                  )
+                  .join('')}
+              </div>
+            </div>
+            <div class="cyber-dlg-actions">
+              ${canConnect ? `<button type="button" class="primary" id="dlgConnect">Connect</button>` : ''}
+              <button type="button" id="dlgSkip">Skip ▸</button>
             </div>
           </div>
         </div>`);
       this.ui.panelHost.querySelectorAll('[data-i]').forEach((b) =>
-        b.addEventListener('click', () => {
+        this.bindTap(b, () => {
           const i = +(b as HTMLElement).dataset.i!;
           const o = n.o[i];
           sfx.ui();
@@ -449,27 +467,64 @@ export class GameApp {
           this.renderDlg();
         })
       );
+      if (canConnect) {
+        this.bindTap(this.ui.panelHost.querySelector('#dlgConnect'), () =>
+          this.hubConnect(e)
+        );
+      }
+      this.bindTap(this.ui.panelHost.querySelector('#dlgSkip'), () => {
+        this.dlg!.q.shift();
+        this.renderDlg();
+      });
       return;
     }
 
     const text = n && 's' in n ? n.s : '';
     this.ui.showPanel(`
-      <div class="overlay-bottom">
-        <div class="card pop" style="max-width:720px;margin:0 auto;padding:16px">
-          <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px">
-            <div style="width:48px;height:48px;border-radius:14px;background:${esc(e.c || '#0A66C2')}22;border:2px solid #123253;display:grid;place-items:center;font-weight:900">${esc(name[0] || '?')}</div>
-            <div><div style="font-weight:900">${esc(name)}</div><div class="muted" style="font-size:11px;font-weight:700">${esc(role)}</div></div>
+      <div class="overlay-dim dlg-layer" style="align-items:flex-end;padding-bottom:20px">
+        <div class="cyber-dlg pop" style="position:relative;left:auto;bottom:auto;transform:none;width:min(920px,100%)">
+          <div class="cyber-dlg-portrait">
+            <img src="./assets/generated/hub/portrait-cory.png" alt="You" />
           </div>
-          <p style="font-weight:700;min-height:48px;margin:0 0 8px" id="dlgTxt">${esc(text)}</p>
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <span class="muted" style="font-size:11px;font-weight:700">Space · E · click</span>
-            <span style="color:#0A66C2;font-weight:900">▼</span>
+          <div class="cyber-dlg-body" id="dlgAdvanceHit">
+            <div class="cyber-dlg-name">${esc(name)} · ${esc(role)}</div>
+            <div class="cyber-dlg-text" id="dlgTxt">${esc(text)}</div>
+            <div class="muted" style="font-size:11px;font-weight:700;margin-top:10px;color:#7eb6c9">
+              Tap to continue · Space / E
+            </div>
+          </div>
+          <div class="cyber-dlg-actions">
+            ${canConnect ? `<button type="button" class="primary" id="dlgConnect">Connect</button>` : ''}
+            <button type="button" id="dlgMessage">Message</button>
+            <button type="button" id="dlgContinue">Continue ▾</button>
+            ${
+              e.tool || e.game
+                ? `<button type="button" id="dlgWorkshop" style="font-size:11px">Open workshop</button>`
+                : ''
+            }
           </div>
         </div>
       </div>`);
-    this.ui.panelHost.querySelector('.card')!.addEventListener('click', () =>
+    this.bindTap(this.ui.panelHost.querySelector('#dlgAdvanceHit'), () =>
       this.advanceDialogue()
     );
+    this.bindTap(this.ui.panelHost.querySelector('#dlgContinue'), () =>
+      this.advanceDialogue()
+    );
+    if (canConnect) {
+      this.bindTap(this.ui.panelHost.querySelector('#dlgConnect'), () =>
+        this.hubConnect(e)
+      );
+    }
+    this.bindTap(this.ui.panelHost.querySelector('#dlgMessage'), () => {
+      this.toast('Message drafted — keep the conversation going offline.');
+      sfx.ui();
+    });
+    this.bindTap(this.ui.panelHost.querySelector('#dlgWorkshop'), () => {
+      // Jump to finish so tool/game opens
+      this.dlg!.q = [];
+      this.finishDlg();
+    });
   }
 
   advanceDialogue() {
@@ -499,6 +554,7 @@ export class GameApp {
 
     this.dlg = null;
     this.ui.clearPanel();
+    document.body.classList.remove('overlay');
     writeSave(g);
     this.refreshHud();
 
@@ -513,12 +569,14 @@ export class GameApp {
       return this.startBattle(e, already && !champDone);
     }
 
+    // Unblock before opening next panel (panels re-block themselves)
     this.scene.setBlocked(false);
 
     if (e.award && !g.team.includes(e.award)) {
       this.grantSignal(e.award, 'Learned from ' + e.n);
     }
 
+    // Always open the linked workshop / mini-game / landmark after dialogue
     if (forceGame === 'feed' || e.game === 'feed') return this.openFeed();
     if (forcePuzzle) return this.openPuzzle(forcePuzzle as PuzzleId);
     if (forceTool) return this.openTool(forceTool);
@@ -527,6 +585,11 @@ export class GameApp {
     if (e.tool === 'market') return this.openMarket();
     if (e.tool === 'proof') return this.openTool('forge');
     if (e.tool) return this.openTool(e.tool);
+
+    // Mentors without a direct tool still leave a clear next step
+    if (e.k === 'npc') {
+      this.toast(`${e.n}: press Connect for workshops, puzzles & tower`);
+    }
   }
 
   startBattle(e: any, champion: boolean) {
@@ -1448,116 +1511,167 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
       });
   }
 
+  /**
+   * Networking Hub directory — every major feature reachable without hunting NPCs.
+   * Also multiplayer peer list when signed in.
+   */
   openConnect() {
     if (!this.scene) return;
     this.scene.setBlocked(true);
+    document.body.classList.add('overlay');
+    const g = this.save();
+    const near = this.scene.nearestEnt(140);
+    const peers = net.peers || [];
 
-    if (!getToken()) {
-      this.ui.showPanel(`
-        <div class="overlay-dim">
-          <div class="card pop" style="max-width:400px;width:100%;padding:20px;text-align:center">
-            <h2 style="margin:0 0 8px">Multiplayer</h2>
-            <p style="font-weight:700">Sign in to see other players on the island and connect in realtime.</p>
-            <button class="btn" id="cAuth" style="width:100%;margin-top:10px">Sign in</button>
-            <button class="btn2" id="cClose" style="width:100%;margin-top:8px">Close</button>
-          </div>
-        </div>`);
-      this.ui.panelHost.querySelector('#cAuth')!.addEventListener('click', () => {
-        this.ui.clearPanel();
-        this.openAuth();
-      });
-      this.ui.panelHost.querySelector('#cClose')!.addEventListener('click', () => {
-        this.ui.clearPanel();
-        this.scene?.setBlocked(false);
-      });
-      return;
-    }
-
-    if (!net.connected) {
-      const g = this.save();
+    if (getToken() && !net.connected) {
       net.connect({ x: g.x, y: g.y, house: g.house || '' });
     }
 
-    const peers = net.peers;
-    const near = this.scene.nearestPeer?.(80);
-
     this.ui.showPanel(`
       <div class="overlay-dim">
-        <div class="card pop scroll" style="max-width:440px;width:100%;max-height:90vh;padding:18px">
-          <h2 style="margin:0 0 6px">Who's here</h2>
-          <p class="muted" style="font-weight:700;font-size:13px">
-            ${net.connected ? `🟢 Live · ${peers.length} other player${peers.length === 1 ? '' : 's'}` : 'Connecting…'}
+        <div class="card pop scroll" style="max-width:520px;width:100%;max-height:92vh;padding:18px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <div>
+              <p style="margin:0;font-size:11px;letter-spacing:.2em;font-weight:900;color:#0A66C2">NETWORKING HUB</p>
+              <h2 style="margin:4px 0 0">Growth Island</h2>
+            </div>
+            <button type="button" class="btn2" id="hubClose">Close</button>
+          </div>
+          <p class="muted" style="font-weight:700;font-size:13px;margin:8px 0 12px">
+            Explore · learn · practice · compete · network. Everything in one place.
           </p>
+
           ${
             near
-              ? `<div class="card2" style="padding:12px;margin:10px 0">
-                  <div style="font-weight:900">Nearby: ${near.name}</div>
-                  <button class="btn" id="cNear" style="width:100%;margin-top:8px">Connect with ${near.name}</button>
+              ? `<div class="card2" style="padding:12px;margin-bottom:12px">
+                  <div style="font-weight:900">Nearby: ${esc(near.n)}</div>
+                  <div class="muted" style="font-size:12px;font-weight:700">${esc(near.role || near.k)}</div>
+                  <button type="button" class="btn" id="hubTalkNear" style="width:100%;margin-top:8px">Talk to ${esc(near.n)}</button>
                 </div>`
-              : '<p style="font-weight:700">Walk near another player (name tag), then connect.</p>'
+              : ''
           }
-          <div id="peerList">
-            ${
-              peers.length
-                ? peers
-                    .map(
-                      (p) =>
-                        `<button class="choice" data-peer="${p.id}" style="display:flex;justify-content:space-between">
-                          <span>👤 ${p.name}</span>
-                          <span class="muted" style="font-size:11px">${p.zone || ''}</span>
-                        </button>`
-                    )
-                    .join('')
-                : `<div class="card2" style="padding:12px;margin:8px 0">
-                    <p style="font-weight:800;margin:0 0 6px">You’re alone on the island</p>
-                    <p class="muted" style="font-size:12px;font-weight:700;margin:0 0 8px">Invite a friend — they join with your code and you connect automatically.</p>
-                    <button class="btn" id="cInvite" style="width:100%">Copy invite link</button>
-                  </div>`
-            }
+
+          <h3 style="margin:10px 0 6px">Practice & learn</h3>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <button type="button" class="btn2 hub-feat" data-feat="puzzles">🧩 Daily Puzzles</button>
+            <button type="button" class="btn2 hub-feat" data-feat="feed">📡 The Feed</button>
+            <button type="button" class="btn2 hub-feat" data-feat="tower">📶 Signal Tower</button>
+            <button type="button" class="btn2 hub-feat" data-feat="market">🛒 Marketplace</button>
+            <button type="button" class="btn2 hub-feat" data-feat="audit">👤 Profile Audit</button>
+            <button type="button" class="btn2 hub-feat" data-feat="forge">✍️ Hook Forge</button>
+            <button type="button" class="btn2 hub-feat" data-feat="comment">💬 Comment Lab</button>
+            <button type="button" class="btn2 hub-feat" data-feat="voice">🎙️ Voice Finder</button>
+            <button type="button" class="btn2 hub-feat" data-feat="cta">🎯 CTA Lab</button>
+            <button type="button" class="btn2 hub-feat" data-feat="cadence">📅 Cadence</button>
+            <button type="button" class="btn2 hub-feat" data-feat="journal">📓 Journal</button>
+            <button type="button" class="btn2 hub-feat" data-feat="board">🏆 Leaderboard</button>
           </div>
-          <div style="margin-top:10px">
-            <input type="text" id="chatIn" placeholder="Island chat…" style="margin-bottom:6px"/>
-            <button class="btn2" id="chatSend" style="width:100%">Send chat</button>
+
+          <h3 style="margin:16px 0 6px">Mentors on the island</h3>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <button type="button" class="choice hub-mentor" data-id="ivy">Ivy · Profile Architect</button>
+            <button type="button" class="choice hub-mentor" data-id="dax">Dax · The Drafter (hooks)</button>
+            <button type="button" class="choice hub-mentor" data-id="g_scroll">Rell · Feed Warden</button>
+            <button type="button" class="choice hub-mentor" data-id="g_rally">Bo · Comment Coach</button>
+            <button type="button" class="choice hub-mentor" data-id="g_surf">Marn · Pipeline Keeper</button>
+            <button type="button" class="choice hub-mentor" data-id="g_arch">Ines · Proof Ranger</button>
+            <button type="button" class="choice hub-mentor" data-id="g_climb">Wynn · Cadence Smith</button>
+            <button type="button" class="choice hub-mentor" data-id="tower">Signal Tower · Leaderboard</button>
+            <button type="button" class="choice hub-mentor" data-id="puzzlehut">Puzzle Hut · Daily challenges</button>
           </div>
-          <button class="btn2" id="cClose" style="width:100%;margin-top:10px">Close</button>
+
+          <h3 style="margin:16px 0 6px">Multiplayer</h3>
+          ${
+            !getToken()
+              ? `<p style="font-weight:700;font-size:13px">Sign in to see other players and rank on the global board.</p>
+                 <button type="button" class="btn" id="hubAuth" style="width:100%">Sign in / Register</button>`
+              : `<p class="muted" style="font-weight:700;font-size:12px">${net.connected ? '🟢 Online' : '⚪ Connecting…'} · ${peers.length} nearby</p>
+                 <div id="hubPeers">${
+                   peers.length
+                     ? peers
+                         .map(
+                           (p) =>
+                             `<div class="card" style="padding:8px;margin:4px 0;font-weight:800;display:flex;justify-content:space-between">
+                               <span>${esc(p.name)}</span>
+                               <button type="button" class="btn2 hub-peer" data-id="${esc(p.id)}" style="padding:4px 10px;font-size:12px">Connect</button>
+                             </div>`
+                         )
+                         .join('')
+                     : '<p class="muted" style="font-weight:700">No other travellers online right now — invite a friend from Account.</p>'
+                 }</div>
+                 <button type="button" class="btn2" id="hubAccount" style="width:100%;margin-top:8px">Account / invites</button>`
+          }
         </div>
       </div>`);
 
-    this.ui.panelHost.querySelector('#cClose')!.addEventListener('click', () => {
+    const close = () => {
       this.ui.clearPanel();
       this.scene?.setBlocked(false);
+    };
+    this.bindTap(this.ui.panelHost.querySelector('#hubClose'), close);
+
+    this.bindTap(this.ui.panelHost.querySelector('#hubTalkNear'), () => {
+      if (!near) return;
+      this.ui.clearPanel();
+      this.scene!.setBlocked(false);
+      this.startDialogue(near);
     });
-    this.ui.panelHost.querySelector('#cInvite')?.addEventListener('click', async () => {
-      const code = this.user?.inviteCode || '';
-      const url = location.origin + '/?invite=' + code;
-      try {
-        await navigator.clipboard.writeText(url);
-        this.toast('Invite link copied');
-      } catch {
-        this.toast(url);
-      }
-    });
-    this.ui.panelHost.querySelector('#cNear')?.addEventListener('click', () => {
-      if (near) {
-        net.requestConnect(near.id);
-        void api.connect(near.id).catch(() => undefined);
-      }
-    });
-    this.ui.panelHost.querySelectorAll('[data-peer]').forEach((b) =>
-      b.addEventListener('click', () => {
-        const id = (b as HTMLElement).dataset.peer!;
-        net.requestConnect(id);
-        void api.connect(id).catch(() => undefined);
+
+    this.ui.panelHost.querySelectorAll('.hub-feat').forEach((b) =>
+      this.bindTap(b, () => {
+        const feat = (b as HTMLElement).dataset.feat!;
+        this.ui.clearPanel();
+        this.scene!.setBlocked(false);
+        if (feat === 'puzzles') this.openPuzzles();
+        else if (feat === 'feed') this.openFeed();
+        else if (feat === 'tower') this.openTower();
+        else if (feat === 'market') this.openMarket();
+        else if (feat === 'journal') this.openJournal();
+        else if (feat === 'board') this.openLeaderboard();
+        else this.openTool(feat);
       })
     );
-    this.ui.panelHost.querySelector('#chatSend')!.addEventListener('click', () => {
-      const t = (this.ui.panelHost.querySelector('#chatIn') as HTMLInputElement).value;
-      if (t.trim()) {
-        net.chat(t.trim());
-        (this.ui.panelHost.querySelector('#chatIn') as HTMLInputElement).value = '';
-        this.toast('You: ' + t.trim());
-      }
+
+    this.ui.panelHost.querySelectorAll('.hub-mentor').forEach((b) =>
+      this.bindTap(b, () => {
+        const id = (b as HTMLElement).dataset.id!;
+        const ent = this.scene!.ents.find((x) => x.id === id);
+        if (!ent) {
+          this.toast('Mentor not loaded — try walking the island');
+          return;
+        }
+        // Warp player near mentor so world feels connected
+        try {
+          if (ent.sprite) {
+            this.scene!.player.setPosition(ent.sprite.x - 36, ent.sprite.y + 8);
+            this.scene!.cameras.main.centerOn(ent.sprite.x, ent.sprite.y);
+          }
+        } catch {
+          /* */
+        }
+        this.ui.clearPanel();
+        this.scene!.setBlocked(false);
+        this.startDialogue(ent);
+      })
+    );
+
+    this.bindTap(this.ui.panelHost.querySelector('#hubAuth'), () => {
+      this.ui.clearPanel();
+      this.openAuth();
     });
+    this.bindTap(this.ui.panelHost.querySelector('#hubAccount'), () => {
+      this.ui.clearPanel();
+      this.openAccount();
+    });
+    this.ui.panelHost.querySelectorAll('.hub-peer').forEach((b) =>
+      this.bindTap(b, () => {
+        const id = (b as HTMLElement).dataset.id!;
+        net.requestConnect(id);
+        void api.connect(id).catch(() => undefined);
+        this.toast('Connection request sent');
+        sfx.win();
+      })
+    );
   }
 
   toggleSound() {
