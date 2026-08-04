@@ -31,31 +31,19 @@ export function startTutorial(app: GameApp) {
     return;
   }
 
+  const isTouch =
+    typeof navigator !== 'undefined' &&
+    /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
   const steps: { title: string; body: string; action?: string }[] = [
     {
-      title: 'Welcome to the island',
-      body: 'This game teaches LinkedIn growth by walking, talking, and shipping real hooks.',
-    },
-    {
-      title: 'How to walk',
-      body:
-        typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
-          ? 'Drag your finger on the island. A blue stick appears under your touch — walk that way.'
-          : 'Click and hold on the island with your mouse to walk toward the cursor. Or use WASD.',
-    },
-    {
-      title: 'Talk to coaches',
-      body: 'Walk near a coach (look for !) and press Talk. They teach tools you can use today.',
-      action: 'talk',
-    },
-    {
-      title: 'Daily puzzles',
-      body: 'Press Puzzles anytime for Thread, Grid, and Ladder. Same seed for everyone each day.',
-      action: 'puzzle',
+      title: 'Welcome to the Networking Hub',
+      body: isTouch
+        ? 'Drag your finger anywhere on the map to walk. Press Talk near a contact (look for !).'
+        : 'Click and hold with your mouse to walk toward the cursor. Click a spot to go there. Press Talk near a contact (look for !).',
     },
     {
       title: 'You’re set',
-      body: 'Explore Profile Plaza first. Your first Signal is already with you. Have fun.',
+      body: 'Connect with coaches, run daily puzzles, and grow your network. Have fun.',
     },
   ];
 

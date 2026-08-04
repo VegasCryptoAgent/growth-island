@@ -226,8 +226,8 @@ export class GameApp {
             Coaches hand you things you can use on the Mainland today.
           </p>
           <p class="muted" style="font-weight:700;font-size:13px;margin-bottom:16px">
-            Use the arrow pad (or WASD) to walk. Walk up to a coach and press Talk.
-            Your first Signal is already with you.
+            Desktop: click &amp; hold with the mouse to walk. Mobile: drag your finger.
+            Walk up to a coach and press Talk. Your first Signal is already with you.
           </p>
           <button type="button" class="btn" id="introGo" style="width:100%">Step onto the island</button>
         </div>

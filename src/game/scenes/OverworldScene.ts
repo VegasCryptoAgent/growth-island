@@ -150,9 +150,13 @@ export class OverworldScene extends Phaser.Scene {
     console.log('[overworld] gen map');
     const { grid, walkable } = generateIsland();
     this.grid = grid;
+    // Generous walkable: land tiles + anything non-sea. Never soft-lock the player.
     this.walkable = (tx: number, ty: number) => {
-      if (tx < 2 || ty < 2 || tx >= MAP_W - 2 || ty >= MAP_H - 2) return false;
-      return walkable(tx, ty) || grid[ty * MAP_W + tx] !== 0;
+      if (tx < 1 || ty < 1 || tx >= MAP_W - 1 || ty >= MAP_H - 1) return false;
+      const t = grid[ty * MAP_W + tx];
+      if (t === 1 || t === 2 || t === 3) return true;
+      // Allow near-edge grass that MapGen marked sea but is interior-ish
+      return walkable(tx, ty);
     };
 
     const worldW = MAP_W * TILE;
@@ -199,14 +203,16 @@ export class OverworldScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(50);
 
-    // Player (Cory)
-    let px = this.save.x || 52 * TILE;
-    let py = this.save.y || 38 * TILE;
+    // Player (Cory) — always spawn on a guaranteed open plaza tile
+    let px = 52 * TILE + TILE / 2;
+    let py = 38 * TILE + TILE / 2;
     {
-      const { tx, ty } = worldTile(px, py);
-      if (!this.walkable(tx, ty)) {
-        px = 52 * TILE;
-        py = 38 * TILE;
+      const sx = this.save.x || px;
+      const sy = this.save.y || py;
+      const { tx, ty } = worldTile(sx, sy);
+      if (this.walkable(tx, ty)) {
+        px = sx;
+        py = sy;
       }
     }
     console.log('[overworld] spawn player', px, py);
@@ -376,8 +382,8 @@ export class OverworldScene extends Phaser.Scene {
     {
       const cx = 52;
       const cy = 38;
-      for (let dy = -8; dy <= 8; dy++) {
-        for (let dx = -8; dx <= 8; dx++) {
+      for (let dy = -14; dy <= 14; dy++) {
+        for (let dx = -14; dx <= 14; dx++) {
           const tx = cx + dx;
           const ty = cy + dy;
           if (tx > 1 && ty > 1 && tx < MAP_W - 2 && ty < MAP_H - 2) {
@@ -385,7 +391,35 @@ export class OverworldScene extends Phaser.Scene {
           }
         }
       }
+      // Re-assert walkable uses the carved grid (grid is shared by reference)
     }
+
+    // Hard snap player onto plaza center (never leave them in the sea)
+    const plazaX = 52 * TILE + TILE / 2;
+    const plazaY = 38 * TILE + TILE / 2;
+    {
+      const { tx, ty } = worldTile(this.player.x, this.player.y);
+      if (!this.walkable(tx, ty)) {
+        this.player.setPosition(plazaX, plazaY);
+        if (this.player.body) {
+          (this.player.body as Phaser.Physics.Arcade.Body).reset(plazaX, plazaY);
+        }
+      }
+    }
+    // Safety: re-snap shortly after boot (covers physics/body settling)
+    this.time.delayedCall(200, () => {
+      if (!this.player) return;
+      const { tx, ty } = worldTile(this.player.x, this.player.y);
+      if (!this.walkable(tx, ty)) {
+        this.player.setPosition(plazaX, plazaY);
+        if (this.player.body) {
+          (this.player.body as Phaser.Physics.Arcade.Body).reset(plazaX, plazaY);
+        }
+      }
+      this.blocked = false;
+      document.body.classList.remove('overlay');
+      (this.app as any)?.ui?.screenMove?.setEnabled?.(true);
+    });
 
     this.blocked = false;
     this.interactGrace = 90;
@@ -478,6 +512,11 @@ export class OverworldScene extends Phaser.Scene {
           document.getElementById('panelHost')?.innerText || ''
         ).slice(0, 160);
         this.app?.ui?.clearPanel?.();
+        // CRITICAL: leave the world unblocked after e2e probes
+        this.blocked = false;
+        document.body.classList.remove('overlay');
+        (this.app as any)?.ui?.screenMove?.setEnabled?.(true);
+        MobileInput.clear();
         console.log(
           '[e2e] result',
           JSON.stringify({
@@ -491,6 +530,8 @@ export class OverworldScene extends Phaser.Scene {
           })
         );
       } catch (e) {
+        this.blocked = false;
+        document.body.classList.remove('overlay');
         console.log('[e2e] result', JSON.stringify({ err: String(e) }));
       }
     }
@@ -626,7 +667,8 @@ export class OverworldScene extends Phaser.Scene {
 
     let vx = 0,
       vy = 0;
-    const speed = isCoarsePointer() ? 260 : 220;
+    // Snappy walk so mouse/finger feel responsive (Champion Island–like)
+    const speed = isCoarsePointer() ? 340 : 300;
 
     // 1) ScreenMove drives MobileInput every frame (mouse hold / finger drag / click-to-move)
     const sm = (this.app as any)?.ui?.screenMove as
@@ -683,9 +725,25 @@ export class OverworldScene extends Phaser.Scene {
       vy /= len;
     }
 
+    // Stuck recovery: if standing on non-walkable, soft-slide toward plaza center
+    {
+      const here = worldTile(this.player.x, this.player.y);
+      if (!this.walkable(here.tx, here.ty)) {
+        const tx = 52 * TILE + TILE / 2;
+        const ty = 38 * TILE + TILE / 2;
+        const dx = tx - this.player.x;
+        const dy = ty - this.player.y;
+        const d = Math.hypot(dx, dy) || 1;
+        // Nudge toward center even without input so the player can never soft-lock
+        vx = dx / d;
+        vy = dy / d;
+      }
+    }
+
     // Position-driven movement (reliable on mobile; physics alone can fail)
+    const dtSec = Math.min(0.05, Math.max(0.008, dtMs / 1000)); // clamp bad frame spikes
     if (vx || vy) {
-      const step = speed * (dtMs / 1000);
+      const step = speed * dtSec;
       let nx = this.player.x + vx * step;
       let ny = this.player.y + vy * step;
       const { tx, ty } = worldTile(nx, ny);
@@ -702,6 +760,15 @@ export class OverworldScene extends Phaser.Scene {
         );
         nx = okX ? hx : this.player.x;
         ny = okY ? hy : this.player.y;
+        // Still stuck after slide? teleport to nearest plaza tile
+        if (
+          nx === this.player.x &&
+          ny === this.player.y &&
+          !this.walkable(worldTile(nx, ny).tx, worldTile(nx, ny).ty)
+        ) {
+          nx = 52 * TILE + TILE / 2;
+          ny = 38 * TILE + TILE / 2;
+        }
       }
       this.player.setPosition(nx, ny);
       if (this.player.body) {
