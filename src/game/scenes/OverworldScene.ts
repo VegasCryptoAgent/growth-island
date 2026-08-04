@@ -144,107 +144,93 @@ export class OverworldScene extends Phaser.Scene {
 
     document.body.classList.remove('on-title');
     document.getElementById('gi-title-ui')?.remove();
-    document.body.classList.add('in-game', 'touch');
-    const pad = document.getElementById('gi-touch-pad') as HTMLElement | null;
-    if (pad) {
-      pad.style.display = 'block';
-      pad.style.visibility = 'visible';
-      pad.style.pointerEvents = 'auto';
-    }
+    document.body.classList.add('in-game', 'touch', 'cyber-hub');
 
     this.app = (this.game.registry.get('app') as GameApp) || (window as any).__GI_APP;
     console.log('[overworld] gen map');
     const { grid, walkable } = generateIsland();
     this.grid = grid;
-    this.walkable = walkable;
+    this.walkable = (tx: number, ty: number) => {
+      if (tx < 2 || ty < 2 || tx >= MAP_W - 2 || ty >= MAP_H - 2) return false;
+      return walkable(tx, ty) || grid[ty * MAP_W + tx] !== 0;
+    };
 
     const worldW = MAP_W * TILE;
     const worldH = MAP_H * TILE;
     this.cameras.main.setBounds(0, 0, worldW, worldH);
-    this.cameras.main.setZoom(cameraZoom());
-    this.cameras.main.setBackgroundColor('#6fcf76');
+    this.cameras.main.setZoom(cameraZoom() * 0.92);
+    this.cameras.main.setBackgroundColor('#061018');
     console.log('[overworld] camera ok');
 
-    // Player first
+    // Cyber Networking Hub backdrop (demo-aligned)
+    if (this.textures.exists('hub_bg')) {
+      this.add
+        .image(worldW / 2, worldH / 2, 'hub_bg')
+        .setDisplaySize(worldW * 1.08, worldH * 1.08)
+        .setDepth(0);
+    } else {
+      try {
+        this.paintGround(grid);
+      } catch {
+        this.add
+          .rectangle(worldW / 2, worldH / 2, worldW, worldH, 0x0a2038)
+          .setDepth(0);
+      }
+    }
+    // Neon plaza rings
+    {
+      const g = this.add.graphics().setDepth(1);
+      const cx = 52 * TILE;
+      const cy = 38 * TILE;
+      g.lineStyle(3, 0x2de2e6, 0.4);
+      g.strokeCircle(cx, cy, 100);
+      g.lineStyle(2, 0xff4fd8, 0.3);
+      g.strokeCircle(cx + 36, cy - 16, 56);
+    }
+    this.add
+      .text(58 * TILE, 28 * TILE, 'NETWORKING HUB', {
+        fontFamily: 'system-ui',
+        fontSize: '14px',
+        color: '#5ef0ff',
+        fontStyle: 'bold',
+        backgroundColor: '#0a1628cc',
+        padding: { x: 8, y: 4 },
+      })
+      .setOrigin(0.5)
+      .setDepth(50);
+
+    // Player (Cory)
     let px = this.save.x || 52 * TILE;
     let py = this.save.y || 38 * TILE;
     {
       const { tx, ty } = worldTile(px, py);
-      if (!walkable(tx, ty)) {
+      if (!this.walkable(tx, ty)) {
         px = 52 * TILE;
         py = 38 * TILE;
       }
     }
     console.log('[overworld] spawn player', px, py);
-    if (this.textures.exists('player') && this.textures.get('player').has('player_0')) {
+    if (this.textures.exists('cory')) {
+      this.player = this.physics.add.sprite(px, py, 'cory');
+      this.player.setDisplaySize(56, 72);
+    } else if (
+      this.textures.exists('player') &&
+      this.textures.get('player').has('player_0')
+    ) {
       this.player = this.physics.add.sprite(px, py, 'player', 'player_0');
-    } else if (this.textures.exists('player')) {
-      this.player = this.physics.add.sprite(px, py, 'player');
+      this.player.setDisplaySize(40, 48);
     } else {
-      const gfb = this.make.graphics({ x: 0, y: 0 });
-      gfb.fillStyle(0x0a66c2, 1);
-      gfb.fillCircle(16, 16, 14);
-      gfb.generateTexture('player_fallback', 32, 32);
-      gfb.destroy();
-      this.player = this.physics.add.sprite(px, py, 'player_fallback');
+      this.player = this.physics.add.sprite(px, py, 'player');
+      this.player.setDisplaySize(40, 48);
     }
-    this.player.setDisplaySize(40, 48);
     this.player.setCollideWorldBounds(true);
     this.player.setDepth(py);
     if (this.player.body) {
       (this.player.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
     }
     this.cameras.main.centerOn(px, py);
-    this.cameras.main.startFollow(this.player, true, 0.2, 0.2);
+    this.cameras.main.startFollow(this.player, true, 0.18, 0.18);
     console.log('[overworld] player ready');
-
-    // Landmarks — prefer build atlas, fall back to styled cards
-    for (const lm of LMK as any[]) {
-      const z = (ZONES as any[]).find((zz) => zz.id === lm.z);
-      if (!z) continue;
-      const x = (z.x + ((z.w / 2 + (lm.ox || 0)) | 0)) * TILE + TILE / 2;
-      const y = (z.y + ((z.h / 2 + (lm.oy || 0)) | 0)) * TILE + TILE / 2;
-      if (this.textures.exists('build')) {
-        try {
-          const tex = this.textures.get('build');
-          const img = tex.getSourceImage() as HTMLImageElement;
-          const fw = Math.floor(img.width / 8) || 32;
-          const fh = Math.floor(img.height / 4) || 32;
-          const col = Math.max(
-            0,
-            (ZONES as any[]).findIndex((zz) => zz.id === lm.z)
-          );
-          const fi = col % 8;
-          const fname = `build_lm_${fi}`;
-          if (!tex.has(fname)) tex.add(fname, 0, fi * fw, 0, fw, fh);
-          this.add
-            .image(x, y, 'build', fname)
-            .setDisplaySize(TILE * 2.8, TILE * 2.8)
-            .setOrigin(0.5, 0.85)
-            .setDepth(y);
-        } catch {
-          this.add
-            .rectangle(x, y - 18, 52, 44, 0xffffff)
-            .setStrokeStyle(3, 0x123253)
-            .setDepth(y);
-        }
-      } else {
-        this.add
-          .rectangle(x, y - 18, 52, 44, 0xffffff)
-          .setStrokeStyle(3, 0x123253)
-          .setDepth(y);
-      }
-      this.add
-        .text(x, y + 12, String(lm.n).toUpperCase(), {
-          fontFamily: 'system-ui',
-          fontSize: '9px',
-          color: '#123253',
-          backgroundColor: '#FFF8EC',
-          padding: { x: 4, y: 2 },
-        })
-        .setOrigin(0.5)
-        .setDepth(y + 1);
-    }
 
     // Scrolls
     for (const s of SCROLLS as any[]) {
@@ -258,14 +244,23 @@ export class OverworldScene extends Phaser.Scene {
       this.add.circle(x, y - 6, 8, 0xffc53d).setStrokeStyle(2, 0x123253).setDepth(y);
     }
 
-    // Entities
-    this.ents = (ENTS as Ent[]).map((e) => {
+    // Entities — hub NPC "Lia" uses demo-style sprite; others keep sheets
+    this.ents = (ENTS as Ent[]).map((e, idx) => {
       const z = (ZONES as any[]).find((zz) => zz.id === e.z);
-      const tx = z ? z.x + ((z.w / 2 + ((e as any).ox || 0)) | 0) : 50;
-      const ty = z ? z.y + ((z.h / 2 + ((e as any).oy || 0)) | 0) : 40;
+      let tx = z ? z.x + ((z.w / 2 + ((e as any).ox || 0)) | 0) : 50;
+      let ty = z ? z.y + ((z.h / 2 + ((e as any).oy || 0)) | 0) : 40;
+      // First plaza NPC stands near player for the connect demo loop
+      if (e.id === 'ivy' || (idx === 0 && e.k === 'npc')) {
+        tx = 54;
+        ty = 37;
+      }
       const wx = tx * TILE + TILE / 2;
       const wy = ty * TILE + TILE / 2;
-      const sheet = NPC_SHEET[e.id] || 'player';
+      const useLia =
+        (e.id === 'ivy' || e.k === 'npc') &&
+        this.textures.exists('lia') &&
+        (e.id === 'ivy' || idx < 2);
+      const sheet = useLia ? 'lia' : NPC_SHEET[e.id] || 'player';
       const key = this.textures.exists(sheet)
         ? sheet
         : this.textures.exists('player')
@@ -273,20 +268,25 @@ export class OverworldScene extends Phaser.Scene {
           : sheet;
       const sprite = this.add
         .sprite(wx, wy, key)
-        .setDisplaySize(36, 44)
+        .setDisplaySize(useLia ? 52 : 36, useLia ? 68 : 44)
         .setDepth(wy)
         .setOrigin(0.5, 0.9);
       const label = this.add
-        .text(wx, wy - 40, e.k === 'foe' ? '⚠' : '!', {
+        .text(wx, wy - 48, e.k === 'foe' ? '⚠' : '!', {
           fontFamily: 'system-ui',
-          fontSize: '14px',
-          color: '#FFC53D',
+          fontSize: '16px',
+          color: '#5ef0ff',
           fontStyle: 'bold',
+          backgroundColor: '#0a1628',
+          padding: { x: 6, y: 2 },
         })
         .setOrigin(0.5)
         .setDepth(wy + 2);
       return {
         ...e,
+        // demo: first coach presents as recruitable contact
+        n: e.id === 'ivy' ? 'Lia' : e.n,
+        role: e.id === 'ivy' ? 'Growth Partner' : e.role,
         wx,
         wy,
         homeX: wx,
@@ -295,6 +295,7 @@ export class OverworldScene extends Phaser.Scene {
         label,
         arm: true,
         patrol: Math.random() * Math.PI * 2,
+        _hub: useLia,
       };
     });
     console.log('[overworld] ents', this.ents.length);
@@ -657,6 +658,15 @@ export class OverworldScene extends Phaser.Scene {
       }
     }
     this.player.setDepth(this.player.y);
+
+    try {
+      this.app?.ui?.updateMinimap?.({
+        x: this.player.x / (MAP_W * TILE),
+        y: this.player.y / (MAP_H * TILE),
+      });
+    } catch {
+      /* */
+    }
 
     // lerp remote peers
     const dt = Math.min(2.5, Math.max(0.5, dtMs / 16.67));

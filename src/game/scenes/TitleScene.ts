@@ -91,10 +91,10 @@ export class TitleScene extends Phaser.Scene {
     const existing = loadSave();
     host.innerHTML = `
       <div class="title-card card">
-        <div class="title-emoji">🏝️</div>
-        <p class="title-kicker">A GROWTH ADVENTURE</p>
+        <div class="title-emoji">🌐</div>
+        <p class="title-kicker">NETWORKING HUB</p>
         <h1 class="title-h1">Growth Island</h1>
-        <p class="title-sub">a networking game</p>
+        <p class="title-sub">walk · connect · grow</p>
         <p class="title-ver">v${APP_VERSION}</p>
         <button type="button" class="btn title-btn" id="giStart">Set sail</button>
         ${

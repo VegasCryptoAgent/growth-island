@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import './styles/main.css';
+import './styles/cyber.css';
 import { BootScene } from './game/scenes/BootScene';
 import { TitleScene } from './game/scenes/TitleScene';
 import { OverworldScene } from './game/scenes/OverworldScene';

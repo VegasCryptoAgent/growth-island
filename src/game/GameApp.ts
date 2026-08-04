@@ -260,20 +260,59 @@ export class GameApp {
     this.scene.setBlocked(true);
     sfx.ui();
 
-    let queue: DNode[] = [];
-    if (met && e.k === 'npc') {
-      queue = [
-        {
-          s:
-            e.id === 'g_scroll'
-              ? 'Rell here. Another round in the feed?'
-              : `Back again. ${e.role || 'What do you need?'}`,
+    // Demo-style hub contact: dual portrait + Connect / Message
+    if (e.k === 'npc' || e.k === 'spot') {
+      const line = met
+        ? e.id === 'g_scroll'
+          ? 'Ready for another round in the feed?'
+          : `Great to see you again. Let's keep building.`
+        : e.id === 'ivy' || e.n === 'Lia'
+          ? "Hi! It's great to connect with you here. Let's share some valuable ideas about development."
+          : (e.script?.[0]?.s as string) ||
+            `Hi! I'm ${e.n}. ${e.role || 'Happy to connect.'}`;
+
+      // Speech bubble over NPC
+      try {
+        const cam = this.scene.cameras.main;
+        const sp = e.sprite;
+        if (sp) {
+          const sx = (sp.x - cam.scrollX) * cam.zoom;
+          const sy = (sp.y - 60 - cam.scrollY) * cam.zoom;
+          this.ui.showSpeechBubble(sx, sy, '!');
+        }
+      } catch {
+        /* */
+      }
+
+      this.dlg = { e, q: [{ s: line }], asked: [] };
+      this.ui.showCyberDialogue({
+        speakerName: e.n === 'Lia' || e.id === 'ivy' ? 'Cory' : e.n || 'Contact',
+        text: line,
+        playerPortrait: './assets/generated/hub/portrait-cory.png',
+        npcPortrait:
+          e.id === 'ivy' || e.n === 'Lia'
+            ? './assets/generated/hub/portrait-lia.png'
+            : './assets/generated/hub/portrait-lia.png',
+        onConnect: () => this.hubConnect(e),
+        onMessage: () => {
+          this.toast('Message drafted — keep the conversation going.');
+          sfx.ui();
         },
-      ];
-      if (e.game === 'feed') queue.push({ s: 'Ready when you are.' });
-      else if (e.tool) queue.push({ s: 'Shall we open the workshop?' });
-      if (e.ask?.length) queue.push({ askNode: true });
-    } else if (met && e.k === 'foe' && g.cleared.includes(e.id)) {
+        onContinue: () => {
+          if (!g.seen.includes(e.id)) g.seen.push(e.id);
+          writeSave(g);
+          this.finishDlg();
+        },
+      });
+      if (!g.seen.includes(e.id)) {
+        g.seen.push(e.id);
+        writeSave(g);
+      }
+      return;
+    }
+
+    let queue: DNode[] = [];
+    if (met && e.k === 'foe' && g.cleared.includes(e.id)) {
       queue = [
         {
           s: g.champ[e.id]
@@ -281,15 +320,50 @@ export class GameApp {
             : `${e.n} rises again, edged in gold. "You beat the version of me that was holding back."`,
         },
       ];
-    } else if (met && e.k === 'spot') {
-      queue = [{ s: `${e.n}. ${e.role || 'You know this place.'}` }];
     } else {
       queue = (e.script || [{ s: e.n + ' nods.' }]) as DNode[];
-      if (e.k === 'npc' && e.ask?.length) queue.push({ askNode: true });
     }
 
     this.dlg = { e, q: queue.slice(), asked: [] };
     this.renderDlg();
+  }
+
+  hubConnect(e: any) {
+    if (!this.scene) return;
+    const g = this.save();
+    if (!g.connections.includes(e.id)) {
+      g.connections.push(e.id);
+      addGS(g, 15, 'Connected with ' + (e.n || 'contact'));
+      writeSave(g);
+      this.cloudSync();
+    }
+    // VFX between player and NPC (screen space)
+    try {
+      const cam = this.scene.cameras.main;
+      const px =
+        (this.scene.player.x - cam.scrollX) * cam.zoom +
+        this.game.canvas.getBoundingClientRect().left;
+      const py =
+        (this.scene.player.y - 30 - cam.scrollY) * cam.zoom +
+        this.game.canvas.getBoundingClientRect().top;
+      const nx =
+        (e.sprite.x - cam.scrollX) * cam.zoom +
+        this.game.canvas.getBoundingClientRect().left;
+      const ny =
+        (e.sprite.y - 30 - cam.scrollY) * cam.zoom +
+        this.game.canvas.getBoundingClientRect().top;
+      this.ui.playConnectFx(px, py, nx, ny);
+    } catch {
+      /* */
+    }
+    sfx.win();
+    this.toast('Connection successful!');
+    track('hub_connect', { id: e.id });
+    this.ui.clearPanel();
+    this.scene.setBlocked(false);
+    this.dlg = null;
+    this.refreshHud();
+    this.checkQuests();
   }
 
   renderDlg(): void {
