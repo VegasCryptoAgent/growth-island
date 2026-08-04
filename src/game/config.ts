@@ -32,6 +32,23 @@ export const PLAYER_SPEED = 2.4;
 export const CAMERA_LERP = 0.12;
 export const ZOOM = 1.65;
 
+/** Slightly lower zoom on phones so more island is visible */
+export function cameraZoom(): number {
+  if (typeof window === 'undefined') return ZOOM;
+  const thin = window.innerWidth < 520 || window.innerHeight < 700;
+  return thin ? 1.35 : ZOOM;
+}
+
+export function isCoarsePointer(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined')
+    return false;
+  return (
+    /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+    (navigator.maxTouchPoints > 1 &&
+      window.matchMedia('(pointer: coarse)').matches)
+  );
+}
+
 /** Stripe payment links — paste from Dashboard → Payment Links */
 export const STRIPE = {
   masterclass: (import.meta.env.VITE_STRIPE_MASTERCLASS as string) || '',

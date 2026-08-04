@@ -1,13 +1,13 @@
 import Phaser from 'phaser';
 import {
   CAMERA_LERP,
-  IS_TOUCH,
   MAP_H,
   MAP_W,
   NPC_SHEET,
   PLAYER_SPEED,
   TILE,
-  ZOOM,
+  cameraZoom,
+  isCoarsePointer,
 } from '../config';
 import { ENTS } from '../data/ents';
 import { LMK } from '../data/lmk';
@@ -57,7 +57,6 @@ export class OverworldScene extends Phaser.Scene {
   zoneName = 'Profile Plaza';
   zoneId = 'plaza';
   blocked = false;
-  waterTiles: Phaser.GameObjects.Sprite[] = [];
   app!: GameApp;
   netAcc = 0;
   facing = 'down';
@@ -70,65 +69,68 @@ export class OverworldScene extends Phaser.Scene {
     this.save = this.registry.get('save') as GameSave;
   }
 
+  /**
+   * Paint the full island as a single Graphics object.
+   * Avoids ~8,000 Image/Sprite nodes which crash mobile Safari WebGL.
+   */
+  paintGround(grid: Uint8Array) {
+    const g = this.add.graphics().setDepth(0);
+    // 0 sea deep, slightly varied grass for land, path, beach
+    const sea = 0x1f86c4;
+    const seaLite = 0x3aa8d4;
+    const beach = 0xf4e2b0;
+    const path = 0xc9a86c;
+    const grassA = 0x6fcf76;
+    const grassB = 0x89da8f;
+    const grassC = 0x5fbf68;
+
+    for (let ty = 0; ty < MAP_H; ty++) {
+      for (let tx = 0; tx < MAP_W; tx++) {
+        const t = grid[ty * MAP_W + tx];
+        let c = sea;
+        if (t === 0) c = (tx + ty) % 5 === 0 ? seaLite : sea;
+        else if (t === 1) c = beach;
+        else if (t === 3) c = path;
+        else {
+          const v = (tx * 3 + ty * 7) % 3;
+          c = v === 0 ? grassA : v === 1 ? grassB : grassC;
+        }
+        g.fillStyle(c, 1);
+        g.fillRect(tx * TILE, ty * TILE, TILE + 0.5, TILE + 0.5);
+      }
+    }
+
+    // Soft shoreline foam (cheap loops, not sprites)
+    g.lineStyle(2, 0xffffff, 0.35);
+    for (let ty = 1; ty < MAP_H - 1; ty++) {
+      for (let tx = 1; tx < MAP_W - 1; tx++) {
+        if (grid[ty * MAP_W + tx] !== 1) continue;
+        // beach edge toward sea
+        if (grid[ty * MAP_W + tx - 1] === 0)
+          g.strokeRect(tx * TILE, ty * TILE, 2, TILE);
+        if (grid[ty * MAP_W + tx + 1] === 0)
+          g.strokeRect(tx * TILE + TILE - 2, ty * TILE, 2, TILE);
+        if (grid[(ty - 1) * MAP_W + tx] === 0)
+          g.strokeRect(tx * TILE, ty * TILE, TILE, 2);
+        if (grid[(ty + 1) * MAP_W + tx] === 0)
+          g.strokeRect(tx * TILE, ty * TILE + TILE - 2, TILE, 2);
+      }
+    }
+  }
+
   create() {
     this.app = (this.game.registry.get('app') as GameApp) || (window as any).__GI_APP;
     const { grid, walkable } = generateIsland();
     this.grid = grid;
     this.walkable = walkable;
 
-    // Draw world as sprites (retained-mode art)
+    // Ground as ONE graphics mesh (not 8k sprites — that blacks out mobile WebGL/Canvas)
     const worldW = MAP_W * TILE;
     const worldH = MAP_H * TILE;
     this.cameras.main.setBounds(0, 0, worldW, worldH);
-    this.cameras.main.setZoom(ZOOM);
+    this.cameras.main.setZoom(cameraZoom());
     this.cameras.main.setBackgroundColor('#6FD8EE');
-
-    const hasTiles = this.textures.exists('tiles');
-    const hasWater = this.textures.exists('water');
-
-    for (let ty = 0; ty < MAP_H; ty++) {
-      for (let tx = 0; tx < MAP_W; tx++) {
-        const t = grid[ty * MAP_W + tx];
-        const x = tx * TILE + TILE / 2;
-        const y = ty * TILE + TILE / 2;
-        if (t === 0) {
-          if (hasWater) {
-            const s = this.add
-              .sprite(x, y, 'water', 'water_0')
-              .setDisplaySize(TILE + 1, TILE + 1)
-              .setDepth(0);
-            if (this.anims.exists('water-anim')) s.play('water-anim');
-            this.waterTiles.push(s);
-          } else {
-            this.add.rectangle(x, y, TILE, TILE, 0x1f86c4).setDepth(0);
-          }
-        } else if (t === 1) {
-          // beach
-          if (hasTiles) {
-            this.add
-              .image(x, y, 'tiles', 'tile_0_4')
-              .setDisplaySize(TILE + 1, TILE + 1)
-              .setDepth(0);
-          } else this.add.rectangle(x, y, TILE, TILE, 0xf4e2b0).setDepth(0);
-        } else if (t === 3) {
-          if (hasTiles) {
-            this.add
-              .image(x, y, 'tiles', 'tile_0_2')
-              .setDisplaySize(TILE + 1, TILE + 1)
-              .setDepth(0);
-          } else this.add.rectangle(x, y, TILE, TILE, 0xd2b48c).setDepth(0);
-        } else {
-          // grass variants
-          const v = (tx * 3 + ty * 7) % 4;
-          if (hasTiles) {
-            this.add
-              .image(x, y, 'tiles', `tile_0_${v}`)
-              .setDisplaySize(TILE + 1, TILE + 1)
-              .setDepth(0);
-          } else this.add.rectangle(x, y, TILE, TILE, 0x89da8f).setDepth(0);
-        }
-      }
-    }
+    this.paintGround(grid);
 
     // Landmarks
     for (const lm of LMK as any[]) {
@@ -172,7 +174,7 @@ export class OverworldScene extends Phaser.Scene {
         .setDepth(y + 1);
     }
 
-    // Nature scatter (trees from nature sheet)
+    // Nature scatter — fewer props on phones
     if (this.textures.exists('nature')) {
       const tex = this.textures.get('nature');
       const img = tex.getSourceImage() as HTMLImageElement;
@@ -182,12 +184,13 @@ export class OverworldScene extends Phaser.Scene {
         const fname = `nat_${i}`;
         if (!tex.has(fname)) tex.add(fname, 0, i * fw, 0, fw, fh);
       }
+      const maxTrees = isCoarsePointer() ? 28 : 70;
+      const step = isCoarsePointer() ? 23 : 17;
       let placed = 0;
-      for (let ty = 4; ty < MAP_H - 4 && placed < 70; ty++) {
-        for (let tx = 4; tx < MAP_W - 4 && placed < 70; tx++) {
+      for (let ty = 4; ty < MAP_H - 4 && placed < maxTrees; ty++) {
+        for (let tx = 4; tx < MAP_W - 4 && placed < maxTrees; tx++) {
           if (grid[ty * MAP_W + tx] !== 2) continue;
-          if ((tx * 13 + ty * 29) % 17 !== 0) continue;
-          // keep off paths and zone centres a bit
+          if ((tx * 13 + ty * 29) % step !== 0) continue;
           const nearPath =
             grid[ty * MAP_W + tx + 1] === 3 ||
             grid[ty * MAP_W + tx - 1] === 3;

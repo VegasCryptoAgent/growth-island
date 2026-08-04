@@ -1,9 +1,35 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body,#app{margin:0;height:100%;overflow:hidden;background:#BFEAF5;
-  font-family:"Segoe UI",Inter,system-ui,-apple-system,sans-serif;color:#123253}
-#game-root{position:fixed;inset:0;z-index:1}
-#game-root canvas{display:block;width:100%!important;height:100%!important}
-#ui-root{position:fixed;inset:0;z-index:20;pointer-events:none}
+html,body,#app{
+  margin:0;
+  width:100%;
+  height:100%;
+  height:100dvh;
+  overflow:hidden;
+  background:#BFEAF5;
+  font-family:"Segoe UI",Inter,system-ui,-apple-system,sans-serif;
+  color:#123253;
+  /* iOS: prevent rubber-band scroll stealing game input */
+  overscroll-behavior:none;
+  position:fixed;
+  inset:0;
+}
+#game-root{
+  position:fixed;
+  inset:0;
+  width:100%;
+  height:100%;
+  height:100dvh;
+  z-index:1;
+  overflow:hidden;
+}
+/* Let Phaser own canvas buffer size — do NOT force CSS width/height 100% */
+#game-root canvas{
+  display:block;
+  touch-action:none;
+  -webkit-user-select:none;
+  user-select:none;
+}
+#ui-root{position:fixed;inset:0;z-index:20;pointer-events:none;height:100%;height:100dvh}
 #ui-root .panel,#ui-root .hud,#ui-root button,#ui-root .interactive{pointer-events:auto}
 
 .card{background:#fff;border:2px solid #123253;border-radius:20px;
