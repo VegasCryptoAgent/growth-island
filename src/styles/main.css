@@ -22,6 +22,8 @@ html,body,#app{
   z-index:1;
   overflow:hidden;
 }
+/* host for #gi-screen-move absolute overlay */
+#game-root{isolation:isolate}
 /* Let Phaser own canvas buffer size — do NOT force CSS width/height 100% */
 #game-root canvas{
   display:block;
@@ -89,63 +91,100 @@ html,body,#app{
   .act{width:48px;height:48px;font-size:18px}
 }
 
-/* touch d-pad — mounted on <body>, above everything except modals */
-.touch-pad,
-#gi-touch-pad{
+/* Screen drag / mouse-hold movement layer (over canvas, under HUD) */
+#game-root{z-index:1}
+#gi-screen-move{
   display:none;
-  position:fixed !important;
-  left:12px !important;
-  bottom:max(18px, env(safe-area-inset-bottom, 0px)) !important;
-  width:168px !important;
-  height:168px !important;
-  z-index:9999 !important;
-  touch-action:none !important;
-  -webkit-user-select:none !important;
-  user-select:none !important;
-  pointer-events:auto !important;
-}
-body.touch .touch-pad,
-body.touch #gi-touch-pad,
-body.in-game .touch-pad,
-body.in-game #gi-touch-pad{display:block !important}
-body.overlay .touch-pad,
-body.overlay #gi-touch-pad{visibility:hidden !important;pointer-events:none !important}
-body.overlay .hud{display:none!important}
-/* While title is up, never show game chrome even with in-game race */
-body.on-title.in-game .touch-pad,
-body.on-title.in-game #gi-touch-pad,
-body.on-title .hud{display:none!important;visibility:hidden!important}
-.touch-pad .pad-btn{
   position:absolute;
-  width:52px;
-  height:52px;
-  border-radius:16px;
-  background:#fff;
-  border:2px solid #123253;
-  box-shadow:0 4px 0 #9FB6CE;
-  display:grid;
-  place-items:center;
-  font-weight:900;
-  font-size:18px;
-  color:#0A66C2;
+  inset:0;
+  z-index:5;
   touch-action:none;
   -webkit-user-select:none;
   user-select:none;
-  -webkit-tap-highlight-color:transparent;
-  padding:0;
-  margin:0;
-  appearance:none;
-  cursor:pointer;
+  cursor:crosshair;
+  background:transparent;
 }
-.touch-pad .pad-btn.on,
-.touch-pad .pad-btn:active{
+body.in-game:not(.on-title):not(.overlay) #gi-screen-move{
+  display:block !important;
+  pointer-events:auto !important;
+}
+body.overlay #gi-screen-move,
+body.on-title #gi-screen-move{
+  display:none !important;
+  pointer-events:none !important;
+}
+body.overlay .hud{display:none!important}
+body.on-title .hud{display:none!important;visibility:hidden!important}
+
+/* Virtual stick ring under finger (mobile) */
+.gi-move-ring{
+  position:fixed;
+  width:112px;
+  height:112px;
+  margin-left:-56px;
+  margin-top:-56px;
+  border-radius:50%;
+  border:3px solid rgba(18,50,83,.55);
+  background:rgba(255,255,255,.35);
+  pointer-events:none;
+  z-index:6;
+  box-shadow:0 4px 16px rgba(18,50,83,.2);
+}
+.gi-move-knob{
+  position:absolute;
+  left:50%;
+  top:50%;
+  width:44px;
+  height:44px;
+  border-radius:50%;
   background:#0A66C2;
-  color:#fff;
-  transform:translateY(2px);
-  box-shadow:0 1px 0 #0B4C90;
+  border:3px solid #123253;
+  box-shadow:0 3px 0 #0B4C90;
+  transform:translate(-50%,-50%);
+  pointer-events:none;
 }
+.gi-move-hint{
+  position:fixed;
+  left:50%;
+  bottom:max(88px, env(safe-area-inset-bottom));
+  transform:translateX(-50%) translateY(12px);
+  background:#123253;
+  color:#fff;
+  font-weight:800;
+  font-size:12px;
+  padding:8px 14px;
+  border-radius:999px;
+  opacity:0;
+  pointer-events:none;
+  z-index:7;
+  transition:opacity .35s, transform .35s;
+  white-space:nowrap;
+  max-width:92vw;
+  text-align:center;
+}
+.gi-move-hint.show{
+  opacity:.92;
+  transform:translateX(-50%) translateY(0);
+}
+
+/* Hide any legacy arrow pads from older builds */
+#gi-mobile-controls,
+#gi-touch-pad,
+.touch-pad{display:none !important}
+
+/* Bigger action buttons on phones — stay above move layer */
 @media (max-width:680px){
-  .hud-actions{bottom:max(16px, env(safe-area-inset-bottom, 0px)); z-index:28}
+  .hud-actions{
+    bottom:max(16px, env(safe-area-inset-bottom, 0px));
+    z-index:30;
+    right:10px;
+    left:auto;
+    transform:none;
+    flex-direction:column-reverse;
+  }
+  .act{width:56px;height:56px;font-size:22px}
+  .hud-tr{z-index:30}
+  #ui-root{z-index:30}
 }
 
 textarea,input[type=text]{width:100%;background:#FFFDF4;border:2px solid #123253;border-radius:14px;
@@ -153,15 +192,17 @@ textarea,input[type=text]{width:100%;background:#FFFDF4;border:2px solid #123253
 textarea:focus,input:focus{border-color:#0A66C2;box-shadow:0 0 0 3px #BEE0FA}
 
 /* Title / house pick — HTML so mobile taps always register */
-body.on-title .hud,
-body.on-title #gi-touch-pad,
-body.on-title .touch-pad{display:none!important;visibility:hidden!important}
 .title-ui{
-  position:fixed;inset:0;z-index:10000;
+  position:fixed;inset:0;z-index:10050;
   display:flex;align-items:center;justify-content:center;
   padding:16px;pointer-events:auto;
   background:linear-gradient(180deg,rgba(191,234,245,.2),rgba(191,234,245,.85));
   overflow:auto;-webkit-overflow-scrolling:touch;
+}
+.title-ui button,.title-ui .house-btn{
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent;
+  min-height:48px;
 }
 .title-card{width:min(420px,100%);padding:22px 18px;text-align:center}
 .title-emoji{font-size:56px;line-height:1;margin-bottom:6px}

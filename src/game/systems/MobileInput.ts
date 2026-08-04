@@ -1,6 +1,7 @@
 /**
  * Global mobile input bus.
- * Lives outside Phaser so HTML d-pad never depends on scene lifecycle.
+ * Lives outside Phaser so HTML controls never depend on scene lifecycle.
+ * Written by HTML joystick/pad; read every frame by OverworldScene.update.
  */
 export const MobileInput = {
   /** -1..1 */
@@ -12,11 +13,16 @@ export const MobileInput = {
   updatedAt: 0,
 
   setAxes(x: number, y: number) {
-    // normalize
+    // clamp + normalize so diagonal is not faster
     const len = Math.hypot(x, y);
-    if (len > 1) {
-      x /= len;
-      y /= len;
+    if (len > 1e-6) {
+      if (len > 1) {
+        x /= len;
+        y /= len;
+      }
+    } else {
+      x = 0;
+      y = 0;
     }
     this.x = x;
     this.y = y;
@@ -32,7 +38,7 @@ export const MobileInput = {
   },
 };
 
-// Debug / e2e access
+// Always expose for debug / e2e / emergency console fixes
 if (typeof window !== 'undefined') {
   (window as unknown as { MobileInput: typeof MobileInput }).MobileInput =
     MobileInput;

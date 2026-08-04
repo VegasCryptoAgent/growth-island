@@ -276,42 +276,36 @@ export class OverworldScene extends Phaser.Scene {
       } as any;
     }
 
-    this.input.addPointer(2);
-    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      if (this.blocked) return;
-      if (document.body.classList.contains('overlay')) return;
-      if (p.x > this.scale.width * 0.42) return;
-      this.stickActive = true;
-      this.stickOrigin.x = p.x;
-      this.stickOrigin.y = p.y;
-      this.stickX = 0;
-      this.stickY = 0;
-    });
-    this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
-      if (!this.stickActive || !p.isDown) return;
-      const dx = p.x - this.stickOrigin.x;
-      const dy = p.y - this.stickOrigin.y;
-      const dead = 12;
-      const max = 48;
-      this.stickX = Math.abs(dx) < dead ? 0 : Phaser.Math.Clamp(dx / max, -1, 1);
-      this.stickY = Math.abs(dy) < dead ? 0 : Phaser.Math.Clamp(dy / max, -1, 1);
-    });
-    const endStick = () => {
-      this.stickActive = false;
-      this.stickX = 0;
-      this.stickY = 0;
-    };
-    this.input.on('pointerup', endStick);
-    this.input.on('pointerupoutside', endStick);
+    // Movement is ScreenMove (mouse hold / finger drag) — no Phaser canvas stick
+    // (it used to steal touches from HTML controls on mobile).
+
+    document.body.classList.add('in-game', 'touch');
+    document.body.classList.remove('on-title', 'overlay');
+
+    // Wire screen → world for click-to-walk + mouse-hold-toward-cursor
+    const sm = (this.app as any)?.ui?.screenMove;
+    if (sm) {
+      sm.screenToWorld = (clientX: number, clientY: number) => {
+        const canvas = this.game.canvas as HTMLCanvasElement;
+        const rect = canvas.getBoundingClientRect();
+        const sx = ((clientX - rect.left) / rect.width) * this.scale.width;
+        const sy = ((clientY - rect.top) / rect.height) * this.scale.height;
+        const wp = this.cameras.main.getWorldPoint(sx, sy);
+        return { x: wp.x, y: wp.y };
+      };
+      sm.syncEnabled();
+    }
+    (this.app as any)?.ui?.mobile?.syncVisibility?.();
 
     this.interactGrace = 90;
 
-    // Skip blocking intro on first load for mobile reliability — toast instead
     if (this.registry.get('intro')) {
       this.registry.set('intro', false);
       this.time.delayedCall(200, () => {
         this.app?.toast?.(
-          'Use the arrow pad or WASD to walk. Press Talk near coaches.'
+          isCoarsePointer()
+            ? 'Drag your finger on the island to walk. Press Talk near coaches.'
+            : 'Click & hold with the mouse to walk (or WASD). Press Talk near coaches.'
         );
       });
     }
@@ -391,7 +385,7 @@ export class OverworldScene extends Phaser.Scene {
           JSON.stringify({
             dxBus,
             dxPad: dxBus,
-            pad: !!document.getElementById('gi-touch-pad'),
+            pad: !!document.getElementById('gi-screen-move'),
             puzzlesOk: /puzzle|thread|grid|ladder/i.test(puzzles),
             menuOk: /pause|resume|sign/i.test(menu),
             x: p.x,
@@ -415,6 +409,7 @@ export class OverworldScene extends Phaser.Scene {
       this.stickY = 0;
       this.stickActive = false;
       MobileInput.clear();
+      (this.app as any)?.ui?.screenMove?.reset?.();
     }
   }
 
@@ -520,27 +515,36 @@ export class OverworldScene extends Phaser.Scene {
     }
     let vx = 0,
       vy = 0;
-    // px per second — mobile needs snappy feedback
-    const speed = isCoarsePointer() ? 220 : 180;
+    const speed = isCoarsePointer() ? 240 : 200;
 
-    // 1) Global HTML d-pad (MobileInput bus — always works if pad is pressed)
+    // ScreenMove: desktop mouse-hold → walk toward cursor; click-to-move target
+    const sm = (this.app as any)?.ui?.screenMove;
+    if (sm && !this.blocked) {
+      // While mouse is held, walk toward live cursor world point
+      if (sm.mode === 'drag' && !isCoarsePointer() && sm.screenToWorld) {
+        // last pointer tracked via target set in dragTo; also re-read from pointer if any
+        if (sm.target) {
+          sm.tickHoldToward(this.player.x, this.player.y, sm.target);
+        }
+      }
+      if (sm.mode === 'target') {
+        sm.tickTowardTarget(this.player.x, this.player.y);
+      }
+    }
+
+    // 1) Finger-drag / mouse → MobileInput bus
     if (MobileInput.active || MobileInput.x || MobileInput.y) {
       vx = MobileInput.x;
       vy = MobileInput.y;
     } else {
-      // 2) Keyboard — guard missing keys
+      // 2) Keyboard still works on desktop as a backup
       try {
         if (this.cursors?.left?.isDown || this.wasd?.A?.isDown) vx -= 1;
         if (this.cursors?.right?.isDown || this.wasd?.D?.isDown) vx += 1;
         if (this.cursors?.up?.isDown || this.wasd?.W?.isDown) vy -= 1;
         if (this.cursors?.down?.isDown || this.wasd?.S?.isDown) vy += 1;
       } catch {
-        /* keyboard may be half-init on mobile */
-      }
-      // 3) Canvas virtual stick
-      if (this.stickActive && (this.stickX || this.stickY)) {
-        vx = this.stickX;
-        vy = this.stickY;
+        /* */
       }
     }
 

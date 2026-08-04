@@ -1,6 +1,8 @@
 import type { GameSave } from '../systems/Save';
 import { rankOf, nextRankAt } from '../systems/Save';
 import { APP_VERSION } from '../config';
+import { MobileControls } from './MobileControls';
+import { ScreenMove } from './ScreenMove';
 import { MobileInput } from '../systems/MobileInput';
 
 export type UIHandlers = {
@@ -13,8 +15,7 @@ export type UIHandlers = {
 };
 
 /**
- * HUD + mobile controls.
- * D-pad is mounted on document.body (not under pointer-events:none) so iOS always gets hits.
+ * HUD + screen movement (mouse / finger). No arrow pad.
  */
 export class UIRoot {
   root: HTMLElement;
@@ -28,24 +29,18 @@ export class UIRoot {
   whoCount!: HTMLElement;
   soundBtn!: HTMLElement;
   panelHost!: HTMLElement;
-  padEl: HTMLElement | null = null;
   handlers: UIHandlers;
-  private padHeld = new Set<string>();
+  mobile: MobileControls;
+  screenMove: ScreenMove;
+  /** legacy e2e */
+  padEl: HTMLElement | null = null;
 
   constructor(root: HTMLElement, handlers: UIHandlers) {
     this.root = root;
     this.handlers = handlers;
+    this.mobile = new MobileControls();
+    this.screenMove = new ScreenMove();
     this.mount();
-  }
-
-  private emitPad() {
-    let x = 0,
-      y = 0;
-    if (this.padHeld.has('left')) x -= 1;
-    if (this.padHeld.has('right')) x += 1;
-    if (this.padHeld.has('up')) y -= 1;
-    if (this.padHeld.has('down')) y += 1;
-    MobileInput.setAxes(x, y);
   }
 
   private mount() {
@@ -93,189 +88,41 @@ export class UIRoot {
     this.soundBtn = this.root.querySelector('#btnSound')!;
     this.panelHost = this.root.querySelector('#panelHost')!;
 
-    this.root.querySelector('#actConnect')!.addEventListener('click', (e) => {
-      e.preventDefault();
-      this.handlers.onConnect();
-    });
-    this.root.querySelector('#actTalk')!.addEventListener('click', (e) => {
-      e.preventDefault();
-      this.handlers.onTalk();
-    });
-    this.root.querySelector('#actPuzzle')!.addEventListener('click', (e) => {
-      e.preventDefault();
-      this.handlers.onPuzzle();
-    });
-    this.root.querySelector('#btnJournal')!.addEventListener('click', (e) => {
-      e.preventDefault();
-      this.handlers.onJournal();
-    });
-    this.root.querySelector('#btnMenu')!.addEventListener('click', (e) => {
-      e.preventDefault();
-      this.handlers.onMenu();
-    });
-    this.root.querySelector('#btnSound')!.addEventListener('click', (e) => {
-      e.preventDefault();
-      this.handlers.onSound();
-    });
-    this.root.querySelector('#btnWho')!.addEventListener('click', (e) => {
-      e.preventDefault();
-      this.handlers.onConnect();
-    });
-
-    // Mount d-pad on <body> so nothing with pointer-events:none can block it
-    this.mountPadOnBody();
-  }
-
-  private mountPadOnBody() {
-    // remove stale pad from prior HMR
-    document.getElementById('gi-touch-pad')?.remove();
-
-    const pad = document.createElement('div');
-    pad.id = 'gi-touch-pad';
-    pad.className = 'touch-pad';
-    pad.setAttribute('aria-label', 'Movement pad');
-    pad.innerHTML = `
-      <button type="button" class="pad-btn" data-d="up" style="left:51px;top:0" aria-label="Up">▲</button>
-      <button type="button" class="pad-btn" data-d="left" style="left:0;top:51px" aria-label="Left">◀</button>
-      <button type="button" class="pad-btn" data-d="right" style="left:102px;top:51px" aria-label="Right">▶</button>
-      <button type="button" class="pad-btn" data-d="down" style="left:51px;top:102px" aria-label="Down">▼</button>
-    `;
-    document.body.appendChild(pad);
-    this.padEl = pad;
-
-    // Show pad on touch devices, narrow screens, OR once player is in-game.
-    // Always mount + enable events; CSS hides it on title screen.
-    const showPad =
-      (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) ||
-      window.matchMedia('(pointer: coarse)').matches ||
-      window.matchMedia('(max-width: 900px)').matches ||
-      document.body.classList.contains('in-game');
-    if (showPad) {
-      document.body.classList.add('touch');
-      pad.style.display = 'block';
-      pad.style.visibility = 'visible';
-      pad.style.pointerEvents = 'auto';
-    }
-    // Re-show pad when overworld marks body.in-game
-    const obs = new MutationObserver(() => {
-      if (
-        document.body.classList.contains('in-game') &&
-        !document.body.classList.contains('on-title') &&
-        !document.body.classList.contains('overlay')
-      ) {
-        document.body.classList.add('touch');
-        pad.style.display = 'block';
-        pad.style.visibility = 'visible';
-        pad.style.pointerEvents = 'auto';
-      }
-    });
-    obs.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-
-    const press = (dir: string, el: HTMLElement, e?: Event) => {
-      e?.preventDefault?.();
-      e?.stopPropagation?.();
-      this.padHeld.add(dir);
-      el.classList.add('on');
-      this.emitPad();
-    };
-    const release = (dir: string, el: HTMLElement, e?: Event) => {
-      e?.preventDefault?.();
-      this.padHeld.delete(dir);
-      el.classList.remove('on');
-      this.emitPad();
-    };
-    const releaseAll = () => {
-      this.padHeld.clear();
-      pad.querySelectorAll('.pad-btn.on').forEach((b) => b.classList.remove('on'));
-      MobileInput.clear();
-    };
-
-    pad.querySelectorAll<HTMLElement>('.pad-btn[data-d]').forEach((el) => {
-      const dir = el.dataset.d!;
-
+    const bind = (sel: string, fn: () => void) => {
+      const el = this.root.querySelector(sel)!;
+      // click + touchend for iOS reliability
+      el.addEventListener('click', (e) => {
+        e.preventDefault();
+        fn();
+      });
       el.addEventListener(
-        'pointerdown',
+        'touchend',
         (e) => {
-          press(dir, el, e);
-          try {
-            el.setPointerCapture(e.pointerId);
-          } catch {
-            /* */
-          }
+          e.preventDefault();
+          e.stopPropagation();
+          fn();
         },
         { passive: false }
       );
-      el.addEventListener(
-        'pointerup',
-        (e) => release(dir, el, e),
-        { passive: false }
-      );
-      el.addEventListener('pointercancel', (e) => release(dir, el, e));
-      el.addEventListener('lostpointercapture', () => release(dir, el));
+    };
+    bind('#actConnect', () => this.handlers.onConnect());
+    bind('#actTalk', () => this.handlers.onTalk());
+    bind('#actPuzzle', () => this.handlers.onPuzzle());
+    bind('#btnJournal', () => this.handlers.onJournal());
+    bind('#btnMenu', () => this.handlers.onMenu());
+    bind('#btnSound', () => this.handlers.onSound());
+    bind('#btnWho', () => this.handlers.onConnect());
 
-      el.addEventListener(
-        'touchstart',
-        (e) => press(dir, el, e),
-        { passive: false }
-      );
-      el.addEventListener(
-        'touchend',
-        (e) => release(dir, el, e),
-        { passive: false }
-      );
-      el.addEventListener('touchcancel', (e) => release(dir, el, e));
-
-      el.addEventListener('mousedown', (e) => press(dir, el, e));
-      el.addEventListener('mouseup', (e) => release(dir, el, e));
-      el.addEventListener('mouseleave', () => {
-        if (this.padHeld.has(dir)) release(dir, el);
-      });
-    });
-
-    // Zone-style hold: touchmove over buttons
-    pad.addEventListener(
-      'touchmove',
-      (e) => {
-        e.preventDefault();
-        const t = e.touches[0];
-        if (!t) return;
-        const el = document.elementFromPoint(t.clientX, t.clientY) as HTMLElement | null;
-        const btn = el?.closest?.('.pad-btn') as HTMLElement | null;
-        if (!btn) return;
-        const dir = btn.dataset.d;
-        if (!dir || this.padHeld.has(dir)) return;
-        // release others for single-finger zone stick
-        [...this.padHeld].forEach((d) => {
-          if (d !== dir) {
-            const b = pad.querySelector(`.pad-btn[data-d="${d}"]`) as HTMLElement | null;
-            if (b) release(d, b);
-          }
-        });
-        press(dir, btn);
-      },
-      { passive: false }
-    );
-
-    window.addEventListener('blur', releaseAll);
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) releaseAll();
-    });
+    this.mobile.mount();
+    this.screenMove.mount();
+    this.padEl = document.getElementById('gi-screen-move');
   }
 
   setOverlay(on: boolean) {
     document.body.classList.toggle('overlay', on);
-    if (this.padEl) {
-      // hide pad under modals so it doesn't steal taps
-      this.padEl.style.visibility = on ? 'hidden' : 'visible';
-      this.padEl.style.pointerEvents = on ? 'none' : 'auto';
-    }
-    if (on) {
-      this.padHeld.clear();
-      this.padEl
-        ?.querySelectorAll('.pad-btn.on')
-        .forEach((b) => b.classList.remove('on'));
-      MobileInput.clear();
-    }
+    this.mobile.setOverlay(on);
+    this.screenMove.setOverlay(on);
+    if (on) MobileInput.clear();
   }
 
   updateHud(g: GameSave, zone: string, goal: string, peers = 0) {
@@ -288,6 +135,8 @@ export class UIRoot {
     this.goalTxt.textContent = goal;
     this.whoCount.textContent = String(peers);
     this.soundBtn.textContent = g.sound ? '🔊' : '🔇';
+    this.mobile.syncVisibility();
+    this.screenMove.syncEnabled();
   }
 
   toast(msg: string) {

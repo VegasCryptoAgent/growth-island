@@ -37,11 +37,17 @@ const game = new Phaser.Game({
     autoCenter: Phaser.Scale.CENTER_BOTH,
     expandParent: true,
   },
-  // forceSetTimeOut: lets browser/CDP interleave work (rAF alone starves Playwright)
+  // Real phones: rAF for smooth walk. forceSetTimeOut only hurts responsiveness.
+  // Playwright e2e can set window.__E2E and we still work via MobileInput.
   fps: {
-    target: isMobile ? 30 : 40,
-    forceSetTimeOut: true,
-    smoothStep: false,
+    target: isMobile ? 45 : 60,
+    forceSetTimeOut: false,
+    smoothStep: true,
+  },
+  // Do NOT capture document-level touch — HTML joystick must win
+  input: {
+    activePointers: 3,
+    windowEvents: true,
   },
   physics: {
     default: 'arcade',
@@ -58,6 +64,24 @@ const game = new Phaser.Game({
     disableWebAudio: false,
   },
   banner: false,
+  // Prevent canvas from eating HTML control hits on some WebViews
+  dom: {
+    createContainer: false,
+  },
+});
+
+// Ensure canvas never sits above HTML UI/controls
+queueMicrotask(() => {
+  const canvas = gameRoot.querySelector('canvas') as HTMLElement | null;
+  if (canvas) {
+    canvas.style.zIndex = '1';
+    canvas.style.position = 'relative';
+    canvas.style.touchAction = 'none';
+  }
+  const ui = document.getElementById('ui-root');
+  if (ui) {
+    ui.style.zIndex = '20';
+  }
 });
 
 // Bridge UI + game

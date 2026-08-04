@@ -99,23 +99,42 @@ export class TitleScene extends Phaser.Scene {
         <button type="button" class="btnG title-btn" id="giAuth">${
           getToken() ? 'Continue with cloud' : 'Sign in / cloud save'
         }</button>
-        <p class="title-hint">Mobile: use the arrow pad to walk · Talk to meet coaches</p>
+        <p class="title-hint">Desktop: click &amp; hold with the mouse to walk · Mobile: drag your finger · Talk to meet coaches</p>
       </div>
     `;
     document.body.appendChild(host);
     this.uiHost = host;
 
-    host.querySelector('#giStart')!.addEventListener('click', () => {
+    // iOS: bind click + touchend (debounced) so taps always fire once
+    const tap = (sel: string, fn: () => void) => {
+      const el = host.querySelector(sel);
+      if (!el) return;
+      let lock = false;
+      const run = (e: Event) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (lock) return;
+        lock = true;
+        try {
+          fn();
+        } finally {
+          window.setTimeout(() => {
+            lock = false;
+          }, 400);
+        }
+      };
+      el.addEventListener('click', run);
+      el.addEventListener('touchend', run, { passive: false });
+    };
+    tap('#giStart', () => {
       bootAudio();
       this.showHousePick();
     });
-    host.querySelector('#giContinue')?.addEventListener('click', () => {
+    tap('#giContinue', () => {
       bootAudio();
-      if (existing) {
-        this.enterGame(existing, false);
-      }
+      if (existing) this.enterGame(existing, false);
     });
-    host.querySelector('#giAuth')!.addEventListener('click', () => {
+    tap('#giAuth', () => {
       bootAudio();
       void this.authFlow();
     });
@@ -149,7 +168,12 @@ export class TitleScene extends Phaser.Scene {
       </div>
     `;
     this.uiHost.querySelectorAll<HTMLElement>('.house-btn').forEach((btn) => {
-      const go = () => {
+      let lock = false;
+      const go = (ev?: Event) => {
+        ev?.preventDefault?.();
+        ev?.stopPropagation?.();
+        if (lock) return;
+        lock = true;
         const id = btn.dataset.id || 'builder';
         const g = freshSave();
         g.house = id;
@@ -165,21 +189,19 @@ export class TitleScene extends Phaser.Scene {
               <p class="title-hint">Loading map</p>
             </div>`;
         }
-        // setTimeout yields so the loading UI paints on mobile before heavy boot
+        // Yield so loading UI paints on mobile before heavy overworld boot
         window.setTimeout(() => {
           try {
             this.enterGame(g, true);
           } catch (err) {
             console.error('[title] enterGame failed', err);
             window.alert('Failed to load island — try refreshing.');
+            lock = false;
           }
         }, 50);
       };
-      btn.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-        go();
-      });
+      btn.addEventListener('click', go);
+      btn.addEventListener('touchend', go, { passive: false });
     });
   }
 
