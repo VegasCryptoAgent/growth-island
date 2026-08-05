@@ -72,20 +72,6 @@ export class ScreenMove {
       capture: true,
       passive: false,
     });
-    // Mouse fallback for browsers that drop pointer events in headless
-    document.addEventListener('mousedown', this.onMouseDown, {
-      capture: true,
-      passive: false,
-    });
-    document.addEventListener('mousemove', this.onMouseMove, {
-      capture: true,
-      passive: false,
-    });
-    document.addEventListener('mouseup', this.onMouseUp, {
-      capture: true,
-      passive: false,
-    });
-
     this.setEnabled(false);
 
     const obs = new MutationObserver(() => this.syncEnabled());
@@ -136,35 +122,6 @@ export class ScreenMove {
       const x1 = p.x;
       return { ok: Math.abs(x1 - x0) > 8, x0, x1 };
     };
-  }
-
-  private onMouseDown = (e: MouseEvent) => {
-    if (e.button !== 0) return;
-    this.handleDown(
-      this.asPointer(e, 'mouse', 'down')
-    );
-  };
-  private onMouseMove = (e: MouseEvent) => {
-    if (this.mode !== 'drag') return;
-    this.handleMove(this.asPointer(e, 'mouse', 'move'));
-  };
-  private onMouseUp = (e: MouseEvent) => {
-    if (this.mode !== 'drag') return;
-    this.handleUp(this.asPointer(e, 'mouse', 'up'));
-  };
-
-  private asPointer(
-    e: MouseEvent,
-    type: string,
-    kind: 'down' | 'move' | 'up'
-  ): PointerEvent {
-    // Reuse real event fields; cast for shared handler
-    return Object.assign(e, {
-      pointerId: 1,
-      pointerType: type,
-      isPrimary: true,
-      type: 'pointer' + kind,
-    }) as unknown as PointerEvent;
   }
 
   private detectCoarse(): boolean {

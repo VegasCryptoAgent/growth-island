@@ -271,11 +271,8 @@ export class GameApp {
 
     if (preferred?.sprite) {
       this.guideToEnt(preferred);
-      this.toast(`Talking with ${preferred.n || 'coach'}`);
-      // Small delay so position settles, then open
-      window.setTimeout(() => {
-        if (!this.dlg) this.startDialogue(preferred);
-      }, 80);
+      // Open immediately (no async) so Talk never feels dead
+      this.startDialogue(preferred);
       return;
     }
 
@@ -1225,7 +1222,17 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
         this.refreshHud();
         this.toast('Opener forged — copy it, then continue to step 3');
       };
-      this.bindTap(this.ui.panelHost.querySelector('#forgeGo'), runForge);
+      // bindTap + direct onclick so programmatic/e2e clicks always fire
+      const forgeBtn = this.ui.panelHost.querySelector('#forgeGo');
+      this.bindTap(forgeBtn, runForge);
+      if (forgeBtn) {
+        (forgeBtn as HTMLElement).onclick = (ev) => {
+          ev.preventDefault();
+          runForge();
+        };
+      }
+      // Expose for e2e
+      (window as any).__GI_RUN_FORGE = runForge;
     }
     this.ui.panelHost.querySelector('#cmtGo')?.addEventListener('click', () => {
       const v = (this.ui.panelHost.querySelector('#cmtIn') as HTMLTextAreaElement).value;
