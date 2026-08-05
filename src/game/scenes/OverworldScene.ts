@@ -1242,19 +1242,18 @@ export class OverworldScene extends Phaser.Scene {
 
   objectiveText(): string {
     const g = this.save;
-    // Clear 3-step value path — player always knows what to do next
-    if (!g.seen?.includes('ivy')) return '1/3 Talk to Ivy (walk to her)';
-    if (!g.tools?.audit && !g.tools?.forge) return '1/3 Finish Ivy\'s intro';
-    if (!g.tools?.forge) return '2/3 Forge a real opener';
-    if (!g.tools?.audit) return '3/3 Run a Profile Audit';
-    // After first value loop — optional practice
-    if (!g.games?.feed?.best) return 'Practice: play The Feed';
+    // Strict first-run pipeline — never ambiguous
+    if (!g.seen?.includes('ivy')) return '1/3 Talk to Ivy on the plaza';
+    if (!g.tools?.audit) return '1/3 Finish Ivy → Profile Audit';
+    if (!g.tools?.forge) return '2/3 Open Hook Forge (Menu or next step)';
+    // After forge — free roam with clear optional goals
+    if (!g.games?.feed?.best) return 'Optional: play The Feed';
     const puzzlesToday = Object.values(g.puzzles || {}).filter(
       (p: any) => p.d === dayKey()
     ).length;
-    if (puzzlesToday < 3) return `Practice: puzzles ${puzzlesToday}/3`;
+    if (puzzlesToday < 3) return `Optional: puzzles ${puzzlesToday}/3`;
     if (g.team.length < 7) return `Collect Signals (${g.team.length}/7)`;
     if (!g.best || g.best < 70) return 'Score 70+ on a hook';
-    return 'You\'re set — explore coaches & Hub';
+    return 'Explore coaches · Menu → Hub';
   }
 }

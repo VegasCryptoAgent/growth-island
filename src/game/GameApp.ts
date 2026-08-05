@@ -309,8 +309,9 @@ export class GameApp {
       ]) as DNode[];
     }
 
-    // Append ask-node for mentors who have Q&A bank
-    if (e.ask?.length && !queue.some((n) => n && 'askNode' in n)) {
+    // Ask-bank only on RETURN visits — first visit goes straight to the workshop
+    // so players don't get stuck on "Ask me anything" with no next step
+    if (met && e.ask?.length && !queue.some((n) => n && 'askNode' in n)) {
       queue = [...queue, { askNode: true as const }];
     }
 
@@ -445,7 +446,7 @@ export class GameApp {
           name,
           role || 'Ask me',
           `<p style="font-weight:700;margin:0 0 10px;font-size:15px">${
-            asked.length ? 'Anything else?' : 'Ask me anything before you go.'
+            asked.length ? 'Anything else?' : 'Optional questions — or continue to the workshop.'
           }</p>
           ${left
             .map(
@@ -453,7 +454,7 @@ export class GameApp {
                 `<button type="button" class="choice" data-ask="${x.i}">${esc(x.a.q)}</button>`
             )
             .join('')}
-          <button type="button" class="btn2" id="askDone" style="width:100%;margin-top:8px">That's all — continue</button>`,
+          <button type="button" class="btn" id="askDone" style="width:100%;margin-top:10px">Continue to workshop ▸</button>`,
           accent
         )
       );
@@ -542,15 +543,24 @@ export class GameApp {
     if (!this.dlg || !this.scene) return;
     const { e, forceGame, forceTool, forcePuzzle } = this.dlg;
     const g = this.save();
-    const first = !g.seen.includes(e.id);
-    if (first) g.seen.push(e.id);
+    // seen is usually already set at dialogue start
+    if (!g.seen.includes(e.id)) g.seen.push(e.id);
 
-    if (first && e.tipKey && KB[e.tipKey as keyof typeof KB]) {
+    if (e.tipKey && KB[e.tipKey as keyof typeof KB]) {
       const tip = KB[e.tipKey as keyof typeof KB];
       if (!g.tips.includes(tip)) {
         g.tips.push(tip);
         addGS(g, 5, 'Field note from ' + e.n);
       }
+    }
+
+    // Prevent immediate re-auto-talk to the same coach
+    try {
+      const live = this.scene.ents?.find((x: any) => x.id === e.id);
+      if (live) live.arm = false;
+      this.scene.interactGrace = 150;
+    } catch {
+      /* */
     }
 
     this.dlg = null;
@@ -587,10 +597,60 @@ export class GameApp {
     if (e.tool === 'proof') return this.openTool('forge');
     if (e.tool) return this.openTool(e.tool);
 
-    // Mentors without a direct tool still leave a clear next step
+    // Mentors without a tool — clear next step for first-run
     if (e.k === 'npc') {
-      this.toast(`${e.n}: press Connect for workshops, puzzles & tower`);
+      if (!g.tools?.forge) {
+        return this.showNextStep({
+          step: '2/3',
+          title: 'Forge a real opener',
+          body: 'Ivy set the foundation. Next: write a LinkedIn opening with your real numbers in Hook Forge (Dax teaches this in Feed District).',
+          primaryLabel: 'Open Hook Forge now',
+          onPrimary: () => this.openTool('forge'),
+          secondaryLabel: 'Walk to Dax later',
+        });
+      }
+      this.toast(`${e.n}: open Menu → Hub for more workshops`);
     }
+  }
+
+  /** Explicit next-step card so progression never dies after a coach */
+  showNextStep(opts: {
+    step: string;
+    title: string;
+    body: string;
+    primaryLabel: string;
+    onPrimary: () => void;
+    secondaryLabel?: string;
+  }) {
+    if (!this.scene) return;
+    this.scene.setBlocked(true);
+    this.ui.showPanel(`
+      <div class="overlay-dim">
+        <div class="card pop" style="max-width:440px;width:100%;padding:22px;text-align:left">
+          <p style="font-size:11px;letter-spacing:.2em;font-weight:900;color:#0A66C2;margin:0 0 8px">
+            NEXT · ${esc(opts.step)}
+          </p>
+          <h2 style="margin:0 0 10px;font-size:20px">${esc(opts.title)}</h2>
+          <p style="font-weight:700;line-height:1.5;margin:0 0 16px">${esc(opts.body)}</p>
+          <button type="button" class="btn" id="nextPrimary" style="width:100%">${esc(opts.primaryLabel)}</button>
+          ${
+            opts.secondaryLabel
+              ? `<button type="button" class="btn2" id="nextSecondary" style="width:100%;margin-top:8px">${esc(opts.secondaryLabel)}</button>`
+              : ''
+          }
+        </div>
+      </div>`);
+    this.bindTap(this.ui.panelHost.querySelector('#nextPrimary'), () => {
+      this.ui.clearPanel();
+      this.scene?.setBlocked(false);
+      opts.onPrimary();
+    });
+    this.bindTap(this.ui.panelHost.querySelector('#nextSecondary'), () => {
+      this.ui.clearPanel();
+      this.scene?.setBlocked(false);
+      this.toast('Quest updated — follow the card top-left');
+      this.refreshHud();
+    });
   }
 
   startBattle(e: any, champion: boolean) {
@@ -834,14 +894,21 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
       t: 'Workshop',
       body: '<p>Coming online.</p>',
     };
+    const nextLabel =
+      id === 'audit' && !g.tools.forge
+        ? 'Done — next: Hook Forge ▸'
+        : id === 'forge'
+          ? 'Done'
+          : 'Close';
     this.ui.showPanel(`
       <div class="overlay-dim">
         <div class="card pop scroll" style="max-width:520px;width:100%;max-height:90vh;padding:18px">
           <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
             <h2 style="margin:0">${T.t}</h2>
-            <button class="btn2" id="toolClose">Close</button>
+            <button class="btn2" id="toolCloseX" style="padding:8px 12px">✕</button>
           </div>
           <div style="margin-top:12px">${T.body}</div>
+          <button type="button" class="btn" id="toolClose" style="width:100%;margin-top:16px">${nextLabel}</button>
         </div>
       </div>`);
 
@@ -856,8 +923,29 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
       this.scene?.setBlocked(false);
       this.refreshHud();
       this.checkQuests();
+
+      // First-run chain: Audit → Forge → done (never leave players stranded)
+      if (id === 'audit' && !g.tools.forge) {
+        window.setTimeout(() => {
+          this.showNextStep({
+            step: '2/3',
+            title: 'Forge a real opener',
+            body: 'Profile audit is done. Now build a LinkedIn opening with your real numbers — this is the piece you can post today.',
+            primaryLabel: 'Open Hook Forge',
+            onPrimary: () => this.openTool('forge'),
+            secondaryLabel: "I'll find Dax in Feed District",
+          });
+        }, 200);
+        return;
+      }
+      if (id === 'forge' && g.tools.forge) {
+        // forgeDone button already shows next step when they forge;
+        // closing without forging still marks tool visited
+        this.toast(g.best ? 'Opener ready — post it on LinkedIn' : 'Open Hook Forge again anytime from Menu → Hub');
+      }
     };
     this.ui.panelHost.querySelector('#toolClose')!.addEventListener('click', close);
+    this.ui.panelHost.querySelector('#toolCloseX')!.addEventListener('click', close);
 
     const wireCopy = (btn: string, text: string) => {
       this.ui.panelHost.querySelector(btn)?.addEventListener('click', async () => {
@@ -975,10 +1063,23 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
           }
         });
         this.ui.panelHost.querySelector('#forgeDone')?.addEventListener('click', () => {
+          // Ensure tool is marked complete + chain next-step
+          if (!g.tools.forge) {
+            g.tools.forge = true;
+            addGS(g, 12, 'Hook Forge');
+            writeSave(g);
+          }
           this.ui.clearPanel();
           this.scene?.setBlocked(false);
-          this.toast('Next: explore coaches, or open Menu → Hub');
           this.refreshHud();
+          this.checkQuests();
+          this.showNextStep({
+            step: 'Done',
+            title: 'You have a post. Use it.',
+            body: 'Copy is on your clipboard path. Paste on LinkedIn. Explore coaches, The Feed, or Menu → Hub for more.',
+            primaryLabel: 'Keep exploring',
+            onPrimary: () => this.toast('You\'re free — quest card shows what\'s next'),
+          });
         });
         sfx[r.score >= 70 ? 'win' : 'ui']();
         this.refreshHud();
