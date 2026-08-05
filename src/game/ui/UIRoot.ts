@@ -12,6 +12,7 @@ export type UIHandlers = {
   onJournal: () => void;
   onMenu: () => void;
   onSound: () => void;
+  onQuestAction?: () => void;
 };
 
 /**
@@ -53,13 +54,14 @@ export class UIRoot {
       <div class="hud" id="hud">
         <!-- top left: quest card (demo videos) -->
         <div class="hud-tl">
-          <div class="card hud-goal-card">
+          <div class="card hud-goal-card" id="questCard" style="cursor:pointer" title="Tap to continue quest">
             <span class="hud-goal-icon">◎</span>
             <div class="hud-goal-meta">
               <p id="goalTxt" class="hud-goal-txt">Explore the island</p>
               <p id="zoneName" class="hud-zone muted">Profile Plaza</p>
             </div>
           </div>
+          <button type="button" class="btn hud-quest-go" id="questGo" style="display:none">Continue ▸</button>
           <div class="card hud-stats">
             <div class="hud-stat" title="Connections"><span>🤝</span><b id="whoCount">0</b></div>
             <div class="hud-stat" title="Growth Score"><span>✦</span><b id="pcXpT">0</b></div>
@@ -138,6 +140,8 @@ export class UIRoot {
     bind('#btnMenu', () => this.handlers.onMenu());
     bind('#btnSound', () => this.handlers.onSound());
     bind('#btnWho', () => this.handlers.onConnect());
+    bind('#questGo', () => this.handlers.onQuestAction?.());
+    bind('#questCard', () => this.handlers.onQuestAction?.());
 
     this.mobile.mount();
     this.screenMove.mount();
@@ -156,22 +160,36 @@ export class UIRoot {
     if (this.pcName) this.pcName.textContent = g.name || 'Traveller';
     const nxt = nextRankAt(g.gs);
     if (this.pcXp) this.pcXp.style.width = Math.min(100, (g.gs / nxt) * 100) + '%';
-    // Demo videos show compact GS number
     if (this.pcXpT) this.pcXpT.textContent = String(g.gs || 0);
     if (this.zoneName) this.zoneName.textContent = zone || 'Profile Plaza';
     if (this.goalTxt) this.goalTxt.textContent = goal;
-    // Connections (prefer real connections; fall back to online peers)
     const conn = g.connections?.length || 0;
     if (this.whoCount) this.whoCount.textContent = String(conn || peers || 0);
     const sig = this.root.querySelector('#sigCount');
     if (sig) sig.textContent = `${g.team?.length || 0}/7`;
     if (this.soundBtn) this.soundBtn.textContent = g.sound ? '🔊' : '🔇';
-    if (this.questEl) {
-      const connected =
-        (g.connections?.length || 0) > 0 || (g.seen?.length || 0) > 1;
-      this.questEl.textContent = connected
-        ? '☑ Connection made'
-        : '☐ Connect with someone';
+    // Persistent Continue button for first-run steps
+    const go = this.root.querySelector('#questGo') as HTMLElement | null;
+    if (go) {
+      const seenIvy = g.seen?.includes('ivy');
+      const audit = !!g.tools?.audit;
+      const forge = !!g.tools?.forge;
+      const feed = !!(g.games?.feed?.best);
+      if (!seenIvy) {
+        go.style.display = 'block';
+        go.textContent = '1/3 Find Ivy ▸';
+      } else if (!audit) {
+        go.style.display = 'block';
+        go.textContent = '1/3 Open Profile Audit ▸';
+      } else if (!forge) {
+        go.style.display = 'block';
+        go.textContent = '2/3 Open Hook Forge ▸';
+      } else if (!feed) {
+        go.style.display = 'block';
+        go.textContent = '3/3 Play The Feed ▸';
+      } else {
+        go.style.display = 'none';
+      }
     }
     this.mobile.syncVisibility();
     this.screenMove.syncEnabled();

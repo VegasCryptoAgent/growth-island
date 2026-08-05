@@ -101,6 +101,12 @@ html,body,#app{
   display:grid;place-items:center;font-size:14px;flex-shrink:0}
 .hud-goal-txt{font-weight:900;font-size:13px;line-height:1.2;margin:0}
 .hud-zone{font-size:10px;font-weight:700;margin:2px 0 0}
+.hud-quest-go{
+  width:100%;padding:10px 12px;font-size:13px;font-weight:900;
+  border-radius:14px;margin-top:2px;pointer-events:auto;
+  box-shadow:0 4px 0 #0B4C90;
+}
+.hud-quest-go:active{transform:translateY(2px);box-shadow:0 1px 0 #0B4C90}
 .hud-stats{display:flex;gap:10px;padding:8px 12px;align-items:center}
 .hud-stat{display:flex;align-items:center;gap:4px;font-size:13px;font-weight:900}
 .hud-stat span{font-size:14px}
@@ -239,6 +245,8 @@ body.in-game #ui-root .hud-tr,
 body.in-game #ui-root .hud-br,
 body.in-game #ui-root .hud-actions,
 body.in-game #ui-root .hud-fab,
+body.in-game #ui-root .hud-quest-go,
+body.in-game #ui-root #questCard,
 body.in-game #ui-root .act,
 body.in-game #ui-root .interactive{pointer-events:auto !important}
 

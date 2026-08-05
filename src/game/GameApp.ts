@@ -65,6 +65,7 @@ export class GameApp {
       onJournal: () => this.openJournal(),
       onMenu: () => this.openPause(),
       onSound: () => this.toggleSound(),
+      onQuestAction: () => this.advanceQuest(),
     });
     (window as any).__GI_APP = this;
     game.registry.set('app', this);
@@ -624,6 +625,7 @@ export class GameApp {
   }) {
     if (!this.scene) return;
     this.scene.setBlocked(true);
+    document.body.classList.add('overlay');
     this.ui.showPanel(`
       <div class="overlay-dim">
         <div class="card pop" style="max-width:440px;width:100%;padding:22px;text-align:left">
@@ -640,17 +642,99 @@ export class GameApp {
           }
         </div>
       </div>`);
-    this.bindTap(this.ui.panelHost.querySelector('#nextPrimary'), () => {
+    // Use both bindTap and direct click for reliability
+    const go = () => {
       this.ui.clearPanel();
+      document.body.classList.remove('overlay');
       this.scene?.setBlocked(false);
-      opts.onPrimary();
-    });
-    this.bindTap(this.ui.panelHost.querySelector('#nextSecondary'), () => {
+      window.setTimeout(() => opts.onPrimary(), 50);
+    };
+    const skip = () => {
       this.ui.clearPanel();
+      document.body.classList.remove('overlay');
       this.scene?.setBlocked(false);
-      this.toast('Quest updated — follow the card top-left');
+      this.toast('Tap the blue Continue button top-left anytime');
       this.refreshHud();
-    });
+    };
+    this.bindTap(this.ui.panelHost.querySelector('#nextPrimary'), go);
+    this.bindTap(this.ui.panelHost.querySelector('#nextSecondary'), skip);
+  }
+
+  /**
+   * Single source of truth for first-run progression.
+   * Always opens the correct next tool/person — never dead-ends.
+   */
+  advanceQuest() {
+    if (!this.scene) return;
+    // Close any stuck overlay first
+    if (this.dlg) {
+      this.dlg.q = [];
+      this.finishDlg();
+      return;
+    }
+    const g = this.save();
+    this.ui.clearPanel();
+    document.body.classList.remove('overlay');
+    this.scene.setBlocked(false);
+
+    // 1 — Ivy
+    if (!g.seen?.includes('ivy')) {
+      const ivy = this.scene.ents?.find((e: any) => e.id === 'ivy');
+      if (ivy?.sprite) {
+        this.guideToEnt(ivy);
+        this.toast('Walk to Ivy — or wait, she will talk when you are close');
+        // If already close, talk now
+        const d = Math.hypot(
+          this.scene.player.x - ivy.sprite.x,
+          this.scene.player.y - ivy.sprite.y
+        );
+        if (d < 100) {
+          ivy.arm = false;
+          this.startDialogue(ivy);
+        }
+      } else {
+        this.toast('Ivy is on Profile Plaza');
+      }
+      return;
+    }
+    // 1b — Profile Audit after Ivy
+    if (!g.tools?.audit) {
+      this.openTool('audit');
+      return;
+    }
+    // 2 — Hook Forge
+    if (!g.tools?.forge) {
+      this.openTool('forge');
+      return;
+    }
+    // 3 — The Feed
+    if (!g.games?.feed?.best) {
+      this.openFeed();
+      return;
+    }
+    // Done — open hub for more
+    this.openConnect();
+    this.toast('First run complete — Hub has every tool');
+  }
+
+  /** Place player near a coach and face them */
+  guideToEnt(e: any) {
+    if (!this.scene || !e?.sprite) return;
+    const x = e.sprite.x - 36;
+    const y = e.sprite.y + 12;
+    this.scene.player.setPosition(x, y);
+    try {
+      (this.scene.player.body as { reset?: (x: number, y: number) => void })?.reset?.(
+        x,
+        y
+      );
+    } catch {
+      /* */
+    }
+    this.scene.cameras.main.centerOn(e.sprite.x, e.sprite.y);
+    this.scene.cameras.main.startFollow(this.scene.player, true, 0.18, 0.18);
+    e.arm = true;
+    this.scene.interactGrace = 0;
   }
 
   startBattle(e: any, champion: boolean) {
@@ -732,6 +816,7 @@ export class GameApp {
         }
         writeSave(g);
         this.ui.clearPanel();
+        document.body.classList.remove('overlay');
         this.scene!.setBlocked(false);
         const medal = ['', 'Bronze', 'Silver', 'Gold'][med];
         this.toast(
@@ -740,10 +825,23 @@ export class GameApp {
         this.refreshHud();
         this.checkQuests();
         this.cloudSync();
+        // First-run complete
+        window.setTimeout(() => {
+          this.showNextStep({
+            step: 'Complete',
+            title: 'You finished the first run',
+            body: 'You talked to Ivy, forged an opener, and practiced The Feed. Paste your opener on LinkedIn. Explore coaches or open Menu → Hub anytime.',
+            primaryLabel: 'Open Hub',
+            onPrimary: () => this.openConnect(),
+            secondaryLabel: 'Keep walking the island',
+          });
+        }, 300);
       },
       () => {
         this.ui.clearPanel();
+        document.body.classList.remove('overlay');
         this.scene?.setBlocked(false);
+        this.refreshHud();
       },
       { house }
     );
@@ -924,24 +1022,38 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
       this.refreshHud();
       this.checkQuests();
 
-      // First-run chain: Audit → Forge → done (never leave players stranded)
+      // First-run chain — always offer the next step card
       if (id === 'audit' && !g.tools.forge) {
         window.setTimeout(() => {
           this.showNextStep({
             step: '2/3',
             title: 'Forge a real opener',
-            body: 'Profile audit is done. Now build a LinkedIn opening with your real numbers — this is the piece you can post today.',
+            body: 'Profile audit is done. Next: build a LinkedIn opening with your real numbers — the piece you can post today.',
             primaryLabel: 'Open Hook Forge',
             onPrimary: () => this.openTool('forge'),
-            secondaryLabel: "I'll find Dax in Feed District",
+            secondaryLabel: 'Later (use Continue top-left)',
           });
-        }, 200);
+        }, 250);
         return;
       }
-      if (id === 'forge' && g.tools.forge) {
-        // forgeDone button already shows next step when they forge;
-        // closing without forging still marks tool visited
-        this.toast(g.best ? 'Opener ready — post it on LinkedIn' : 'Open Hook Forge again anytime from Menu → Hub');
+      if (id === 'forge') {
+        // Whether they forged or just closed — push step 3 if not done The Feed
+        if (!g.games?.feed?.best) {
+          window.setTimeout(() => {
+            this.showNextStep({
+              step: '3/3',
+              title: 'Practice in The Feed',
+              body: g.best
+                ? 'Opener forged. Last step: play The Feed — a quick scoring game that trains what gets read.'
+                : 'Hook Forge is unlocked. Last step: play The Feed, then you are free to explore.',
+              primaryLabel: 'Play The Feed',
+              onPrimary: () => this.openFeed(),
+              secondaryLabel: 'Later (use Continue top-left)',
+            });
+          }, 250);
+        } else {
+          this.toast(g.best ? 'Post your opener on LinkedIn' : 'Menu → Hub for every tool');
+        }
       }
     };
     this.ui.panelHost.querySelector('#toolClose')!.addEventListener('click', close);
@@ -1063,27 +1175,29 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
           }
         });
         this.ui.panelHost.querySelector('#forgeDone')?.addEventListener('click', () => {
-          // Ensure tool is marked complete + chain next-step
           if (!g.tools.forge) {
             g.tools.forge = true;
             addGS(g, 12, 'Hook Forge');
             writeSave(g);
           }
           this.ui.clearPanel();
+          document.body.classList.remove('overlay');
           this.scene?.setBlocked(false);
           this.refreshHud();
           this.checkQuests();
+          // Always step 3 after forging
           this.showNextStep({
-            step: 'Done',
-            title: 'You have a post. Use it.',
-            body: 'Copy is on your clipboard path. Paste on LinkedIn. Explore coaches, The Feed, or Menu → Hub for more.',
-            primaryLabel: 'Keep exploring',
-            onPrimary: () => this.toast('You\'re free — quest card shows what\'s next'),
+            step: '3/3',
+            title: 'Practice in The Feed',
+            body: 'You have a real opener. Last guided step: play The Feed — score what gets read on LinkedIn.',
+            primaryLabel: 'Play The Feed now',
+            onPrimary: () => this.openFeed(),
+            secondaryLabel: 'Later (Continue button top-left)',
           });
         });
         sfx[r.score >= 70 ? 'win' : 'ui']();
         this.refreshHud();
-        this.toast('Opener forged — copy it and post');
+        this.toast('Opener forged — copy it, then continue to step 3');
       });
     }
     this.ui.panelHost.querySelector('#cmtGo')?.addEventListener('click', () => {

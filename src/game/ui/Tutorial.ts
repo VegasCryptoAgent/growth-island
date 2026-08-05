@@ -55,10 +55,13 @@ export function startTutorial(app: GameApp) {
         <div class="card2" style="padding:12px;margin:0 0 14px">
           <p style="font-weight:900;margin:0 0 8px;font-size:13px">Your first 3 minutes</p>
           <ol style="margin:0;padding-left:18px;font-weight:700;line-height:1.65;font-size:13px">
-            <li><b>Talk to Ivy</b> on the plaza path (blue jacket)</li>
-            <li>Answer 2 questions — she opens the workshop</li>
-            <li><b>Forge a real opener</b> with your numbers → <b>Copy</b> it</li>
+            <li><b>1/3 Talk to Ivy</b> → Profile Audit</li>
+            <li><b>2/3 Hook Forge</b> — write an opener you can post</li>
+            <li><b>3/3 The Feed</b> — practice what gets read</li>
           </ol>
+          <p style="font-size:12px;font-weight:800;color:#0A66C2;margin:10px 0 0">
+            Stuck? Tap the blue <b>Continue</b> button under the quest card (top-left) anytime.
+          </p>
         </div>
         <p style="font-size:12px;font-weight:700;color:#5C7A99;margin:0 0 14px">
           ${
