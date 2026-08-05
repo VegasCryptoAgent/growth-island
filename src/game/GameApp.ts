@@ -1106,10 +1106,10 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
           sfx.ui();
         })
       );
-      this.ui.panelHost.querySelector('#forgeGo')?.addEventListener('click', () => {
-        const V = (id: string) =>
+      const runForge = () => {
+        const V = (fid: string) =>
           (
-            this.ui.panelHost.querySelector('#' + id) as HTMLInputElement | null
+            this.ui.panelHost.querySelector('#' + fid) as HTMLInputElement | null
           )?.value?.trim() || '';
         const a = V('f1') || 'onboarding time';
         const b = V('f2') || '21 days';
@@ -1142,7 +1142,6 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
           g.team.push('hook');
           addGS(g, 15, 'Learned HookHero');
         }
-        // Mark forge used so quest advances + first-run complete
         g.tools = g.tools || {};
         if (!g.tools.forge) {
           g.tools.forge = true;
@@ -1163,9 +1162,11 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
             </div>
             ${r.lines.map((l) => `<div style="font-size:12px;font-weight:700;margin-top:4px">${l.pts}/${l.max} ${l.rule} — <span class="muted">${l.why}</span></div>`).join('')}
             <button type="button" class="btn" id="forgeCopy" style="width:100%;margin-top:12px">Copy to clipboard — post on LinkedIn</button>
-            <button type="button" class="btn2" id="forgeDone" style="width:100%;margin-top:8px">Done — back to the island</button>
+            <button type="button" class="btn2" id="forgeDone" style="width:100%;margin-top:8px">Done — continue to step 3 ▸</button>
           </div>`;
-        this.ui.panelHost.querySelector('#forgeCopy')?.addEventListener('click', async () => {
+        // scroll result into view
+        this.ui.panelHost.querySelector('#forgeOut')?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+        this.bindTap(this.ui.panelHost.querySelector('#forgeCopy'), async () => {
           try {
             await navigator.clipboard.writeText(txt);
             this.toast('Copied — paste into LinkedIn');
@@ -1174,7 +1175,7 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
             this.toast('Select the text and copy manually');
           }
         });
-        this.ui.panelHost.querySelector('#forgeDone')?.addEventListener('click', () => {
+        this.bindTap(this.ui.panelHost.querySelector('#forgeDone'), () => {
           if (!g.tools.forge) {
             g.tools.forge = true;
             addGS(g, 12, 'Hook Forge');
@@ -1185,7 +1186,6 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
           this.scene?.setBlocked(false);
           this.refreshHud();
           this.checkQuests();
-          // Always step 3 after forging
           this.showNextStep({
             step: '3/3',
             title: 'Practice in The Feed',
@@ -1198,7 +1198,8 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
         sfx[r.score >= 70 ? 'win' : 'ui']();
         this.refreshHud();
         this.toast('Opener forged — copy it, then continue to step 3');
-      });
+      };
+      this.bindTap(this.ui.panelHost.querySelector('#forgeGo'), runForge);
     }
     this.ui.panelHost.querySelector('#cmtGo')?.addEventListener('click', () => {
       const v = (this.ui.panelHost.querySelector('#cmtIn') as HTMLTextAreaElement).value;
@@ -1574,34 +1575,46 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
     const streak = this.save().streak || 1;
     this.ui.showPanel(`
       <div class="overlay-dim">
-        <div class="card pop" style="max-width:420px;width:100%;padding:20px">
-          <h2 style="margin:0 0 8px">Paused</h2>
-          <p style="font-weight:700;line-height:1.5">
-            Drag / click-hold to walk. Press <b>Talk</b> near coaches.<br>
-            Play <b>The Feed</b>, daily <b>Puzzles</b>, and score hooks at the Tower.<br>
-            <b>Connect</b> with online players · invite friends from Account.
-          </p>
-          <p class="muted" style="font-size:12px;font-weight:700">v${APP_VERSION} · ${authLabel} · ${net.connected ? '🟢 online' : '⚪ offline'} · 🔥 ${streak}d streak</p>
-          <button class="btn" id="pResume" style="width:100%;margin-top:10px">Resume</button>
-          <button class="btnG" id="pAuth" style="width:100%;margin-top:8px">${this.user ? 'Account / cloud sync' : 'Sign in / Register'}</button>
-          <button class="btn2" id="pBoard" style="width:100%;margin-top:8px">Leaderboard</button>
-          <button class="btn2" id="pTitle" style="width:100%;margin-top:8px">Title screen</button>
+        <div class="card pop scroll" style="max-width:420px;width:100%;max-height:90vh;padding:20px">
+          <h2 style="margin:0 0 8px">Menu</h2>
+          <p class="muted" style="font-size:12px;font-weight:700;margin:0 0 12px">v${APP_VERSION} · ${authLabel} · ${net.connected ? '🟢 online' : '⚪ offline'} · 🔥 ${streak}d</p>
+          <button class="btn" id="pResume" style="width:100%">Resume</button>
+          <p style="font-size:11px;font-weight:900;letter-spacing:.12em;color:#0A66C2;margin:14px 0 6px">PLAY</p>
+          <button class="btn2" id="pHub" style="width:100%;margin-top:6px">🤝 Hub — all tools</button>
+          <button class="btn2" id="pFeed" style="width:100%;margin-top:6px">📡 The Feed</button>
+          <button class="btn2" id="pForge" style="width:100%;margin-top:6px">✍️ Hook Forge</button>
+          <button class="btn2" id="pPuzzles" style="width:100%;margin-top:6px">🧩 Daily puzzles</button>
+          <button class="btn2" id="pTower" style="width:100%;margin-top:6px">📶 Signal Tower</button>
+          <button class="btn2" id="pJournal" style="width:100%;margin-top:6px">📓 Journal</button>
+          <button class="btn2" id="pBoard" style="width:100%;margin-top:6px">🏆 Leaderboard</button>
+          <p style="font-size:11px;font-weight:900;letter-spacing:.12em;color:#0A66C2;margin:14px 0 6px">ACCOUNT</p>
+          <button class="btnG" id="pAuth" style="width:100%;margin-top:6px">${this.user ? 'Account / cloud sync' : 'Sign in / Register'}</button>
+          <button class="btn2" id="pTitle" style="width:100%;margin-top:6px">Title screen</button>
         </div>
       </div>`);
-    this.ui.panelHost.querySelector('#pResume')!.addEventListener('click', () => {
+    const closeAnd = (fn: () => void) => {
+      this.ui.clearPanel();
+      this.scene?.setBlocked(false);
+      document.body.classList.remove('overlay');
+      window.setTimeout(fn, 40);
+    };
+    this.bindTap(this.ui.panelHost.querySelector('#pResume'), () => {
       this.ui.clearPanel();
       this.scene?.setBlocked(false);
     });
-    this.ui.panelHost.querySelector('#pAuth')!.addEventListener('click', () => {
+    this.bindTap(this.ui.panelHost.querySelector('#pHub'), () => closeAnd(() => this.openConnect()));
+    this.bindTap(this.ui.panelHost.querySelector('#pFeed'), () => closeAnd(() => this.openFeed()));
+    this.bindTap(this.ui.panelHost.querySelector('#pForge'), () => closeAnd(() => this.openTool('forge')));
+    this.bindTap(this.ui.panelHost.querySelector('#pPuzzles'), () => closeAnd(() => this.openPuzzles()));
+    this.bindTap(this.ui.panelHost.querySelector('#pTower'), () => closeAnd(() => this.openTower()));
+    this.bindTap(this.ui.panelHost.querySelector('#pJournal'), () => closeAnd(() => this.openJournal()));
+    this.bindTap(this.ui.panelHost.querySelector('#pAuth'), () => {
       this.ui.clearPanel();
       if (this.user) this.openAccount();
       else this.openAuth();
     });
-    this.ui.panelHost.querySelector('#pBoard')!.addEventListener('click', () => {
-      this.ui.clearPanel();
-      this.openLeaderboard();
-    });
-    this.ui.panelHost.querySelector('#pTitle')!.addEventListener('click', () => {
+    this.bindTap(this.ui.panelHost.querySelector('#pBoard'), () => closeAnd(() => this.openLeaderboard()));
+    this.bindTap(this.ui.panelHost.querySelector('#pTitle'), () => {
       this.scene?.persist();
       void this.cloudSync();
       net.disconnect();

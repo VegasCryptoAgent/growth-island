@@ -79,15 +79,15 @@ export class UIRoot {
           <button type="button" class="card hud-chip" id="btnSound" title="Sound">🔊</button>
         </div>
 
-        <!-- bottom right: journal + menu (demo videos) -->
+        <!-- bottom right: hub + journal + menu + talk -->
         <div class="hud-br" id="actionRow">
+          <button type="button" class="hud-fab" id="actConnect" title="Hub — all tools">🤝</button>
           <button type="button" class="hud-fab" id="btnJournal" title="Journal">📓</button>
           <button type="button" class="hud-fab" id="btnMenu" title="Menu">☰</button>
           <button type="button" class="hud-fab hud-fab-talk" id="actTalk" title="Talk">💬</button>
         </div>
 
-        <!-- hidden legacy hooks -->
-        <button type="button" class="hidden" id="actConnect"></button>
+        <!-- hidden legacy hooks (still wired) -->
         <button type="button" class="hidden" id="actPuzzle"></button>
         <button type="button" class="hidden" id="btnWho"></button>
         <span class="hidden" id="pcRank">Lurker</span>

@@ -53,8 +53,9 @@ async function openHub(page) {
     window.__GI_APP.dlg = null;
     window.__GI_APP.scene.blocked = false;
     document.body.classList.remove('overlay');
+    // Prefer API — HUD button may be renamed; openConnect is the source of truth
+    window.__GI_APP.openConnect();
   });
-  await page.click('#actConnect', { timeout: 8000 });
   await page.waitForTimeout(350);
 }
 
