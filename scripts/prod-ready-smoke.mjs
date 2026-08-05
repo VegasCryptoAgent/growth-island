@@ -201,20 +201,28 @@ async function main() {
     t = await panelText(page);
     ok('hud menu', /paused|resume|account|leaderboard/i.test(t));
 
-    // Talk button
+    // Talk near Ivy (auto-dialogue path)
     await page.evaluate(() => {
-      window.__GI_APP.ui.clearPanel();
-      window.__GI_APP.dlg = null;
-      window.__GI_APP.scene.blocked = false;
+      const a = window.__GI_APP;
+      a.ui.clearPanel();
+      a.dlg = null;
+      a.scene.blocked = false;
       document.body.classList.remove('overlay');
+      a.scene.interactGrace = 0;
+      const ivy = a.scene.ents.find((e) => e.id === 'ivy');
+      if (ivy?.sprite) {
+        a.scene.player.setPosition(ivy.sprite.x - 28, ivy.sprite.y + 8);
+        ivy.arm = true;
+        a.startDialogue(ivy);
+      } else {
+        a.talkOrAdvance();
+      }
     });
-    await page.click('#actTalk');
     await page.waitForTimeout(400);
     t = await panelText(page);
     ok(
       'hud talk',
-      /NETWORKING HUB|coach|dialogue|ivy|lia|connect|made it|welcome/i.test(t) ||
-        t.length > 30,
+      /ivy|profile|made it|welcome|architect/i.test(t) || t.length > 30,
       t.slice(0, 80)
     );
 
