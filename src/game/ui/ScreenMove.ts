@@ -103,21 +103,26 @@ export class ScreenMove {
       document.body.classList.remove('overlay', 'on-title');
       document.body.classList.add('in-game');
       this.setEnabled(true);
-      this.reset();
-      const x0 = p.x;
-      // Stick-style: hold right for N frames via MobileInput
-      const len = Math.hypot(dx, dy) || 1;
-      MobileInput.setAxes(dx / len, dy / len);
+      // Simulate a held drag stick (origin → lastClient) so tick() keeps axes alive
       this.mode = 'drag';
       this.active = true;
+      this.pointerId = 1;
+      this.origin = { x: 0, y: 0 };
+      this.lastClient = { x: dx, y: dy };
+      this.target = null;
+      const len = Math.hypot(dx, dy) || 1;
+      MobileInput.setAxes(dx / len, dy / len);
+      const x0 = p.x;
       for (let i = 0; i < frames; i++) {
+        // Re-assert stick every frame (tick may recompute from origin/lastClient)
+        this.lastClient = { x: dx, y: dy };
+        MobileInput.setAxes(dx / len, dy / len);
         try {
           scene.update(0, 16);
         } catch {
           /* */
         }
       }
-      MobileInput.clear();
       this.reset();
       const x1 = p.x;
       return { ok: Math.abs(x1 - x0) > 8, x0, x1 };

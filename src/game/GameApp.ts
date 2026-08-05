@@ -933,6 +933,9 @@ export class GameApp {
   openTool(id: string) {
     if (!this.scene) return;
     if (id === 'proof') id = 'forge';
+    // Always clear prior dialogue so tools aren't blocked by leftover dlg state
+    this.dlg = null;
+    document.body.classList.remove('overlay');
     this.scene.setBlocked(true);
     const g = this.save();
     const tools: Record<string, { t: string; body: string }> = {
