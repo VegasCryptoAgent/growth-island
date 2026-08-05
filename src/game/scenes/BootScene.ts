@@ -137,7 +137,7 @@ export class BootScene extends Phaser.Scene {
       });
     }
 
-    // Tile frames 8x4
+    // Tile frames 8x4 (64px cells in tiles.png)
     if (this.textures.exists('tiles')) {
       const tex = this.textures.get('tiles');
       const img = tex.getSourceImage() as HTMLImageElement;
@@ -148,6 +148,54 @@ export class BootScene extends Phaser.Scene {
           const id = `tile_${r}_${c}`;
           if (!tex.has(id)) tex.add(id, 0, c * fw, r * fh, fw, fh);
         }
+    }
+
+    // Nature frames 8x4 (128px cells — grass / tree / bush / rock)
+    if (this.textures.exists('nature')) {
+      const tex = this.textures.get('nature');
+      const img = tex.getSourceImage() as HTMLImageElement;
+      const fw = Math.floor(img.width / 8);
+      const fh = Math.floor(img.height / 4);
+      for (let r = 0; r < 4; r++)
+        for (let c = 0; c < 8; c++) {
+          const id = `nat_${r}_${c}`;
+          if (!tex.has(id)) tex.add(id, 0, c * fw, r * fh, fw, fh);
+        }
+    }
+
+    // Build props 8x4
+    if (this.textures.exists('build')) {
+      const tex = this.textures.get('build');
+      const img = tex.getSourceImage() as HTMLImageElement;
+      const fw = Math.floor(img.width / 8);
+      const fh = Math.floor(img.height / 4);
+      for (let r = 0; r < 4; r++)
+        for (let c = 0; c < 8; c++) {
+          const id = `bld_${r}_${c}`;
+          if (!tex.has(id)) tex.add(id, 0, c * fw, r * fh, fw, fh);
+        }
+    }
+
+    // Items 8x4
+    if (this.textures.exists('items')) {
+      const tex = this.textures.get('items');
+      const img = tex.getSourceImage() as HTMLImageElement;
+      const fw = Math.floor(img.width / 8);
+      const fh = Math.floor(img.height / 4);
+      for (let r = 0; r < 4; r++)
+        for (let c = 0; c < 8; c++) {
+          const id = `itm_${r}_${c}`;
+          if (!tex.has(id)) tex.add(id, 0, c * fw, r * fh, fw, fh);
+        }
+    }
+
+    // Force crisp nearest-neighbor on every loaded texture
+    for (const key of this.textures.getTextureKeys()) {
+      try {
+        this.textures.get(key).setFilter(Phaser.Textures.FilterMode.NEAREST);
+      } catch {
+        /* */
+      }
     }
 
     this.scene.start('title');

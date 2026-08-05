@@ -91,8 +91,9 @@ try {
     },
     scene: [BootScene, TitleScene, OverworldScene],
     render: {
-      antialias: !isMobile,
-      pixelArt: false,
+      // Nearest-neighbor — crisp pixel tiles/sprites like v35 / demo videos
+      antialias: false,
+      pixelArt: true,
       roundPixels: true,
       powerPreference: isMobile ? 'default' : 'high-performance',
     },

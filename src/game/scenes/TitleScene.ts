@@ -94,8 +94,8 @@ export class TitleScene extends Phaser.Scene {
         <div class="title-emoji">🏝️</div>
         <p class="title-kicker">A GROWTH ADVENTURE</p>
         <h1 class="title-h1">Growth Island</h1>
-        <p class="title-sub">a networking game</p>
-        <p class="title-ver">v${APP_VERSION}</p>
+        <p class="title-sub">Practice LinkedIn. Leave with a post.</p>
+        <p class="title-ver" style="font-weight:800;color:#0A66C2">10 minutes · real openers you can publish today</p>
         <button type="button" class="btn title-btn" id="giStart">Set sail</button>
         ${
           existing
@@ -105,7 +105,7 @@ export class TitleScene extends Phaser.Scene {
         <button type="button" class="btnG title-btn" id="giAuth">${
           getToken() ? 'Continue with cloud' : 'Sign in / cloud save'
         }</button>
-        <p class="title-hint">D-pad or drag to walk · coaches greet you on approach · Talk to continue · Journal · Hub for every feature</p>
+        <p class="title-hint">Talk to Ivy → forge a real opener with your numbers → copy it to LinkedIn. Coaches teach; tools produce the work.</p>
       </div>
     `;
     document.body.appendChild(host);

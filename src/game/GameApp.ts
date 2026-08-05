@@ -942,27 +942,47 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
           g.team.push('hook');
           addGS(g, 15, 'Learned HookHero');
         }
+        // Mark forge used so quest advances + first-run complete
+        g.tools = g.tools || {};
+        if (!g.tools.forge) {
+          g.tools.forge = true;
+          addGS(g, 20, 'Forged first opener');
+        }
         writeSave(g);
         (this.ui.panelHost.querySelector('#forgeOut') as HTMLElement).innerHTML = `
-          <div class="card2" style="padding:14px;margin-top:12px">
-            <p style="font-size:12px;font-weight:900;margin:0 0 8px;color:#0A66C2">Your opening</p>
-            <pre style="white-space:pre-wrap;font:inherit;font-weight:700;font-size:13px;margin:0 0 12px;line-height:1.45">${esc(txt)}</pre>
-            <div style="font-size:32px;font-weight:900;color:${r.score >= 70 ? '#1B9E4B' : '#D9930B'}">${r.score}</div>
-            ${r.shareWorthy ? '<div class="tag" style="background:#E9FBEE;margin:6px 0">SHARE-WORTHY</div>' : ''}
-            ${r.lines.map((l) => `<div style="font-size:12px;font-weight:700;margin-top:6px">${l.pts}/${l.max} ${l.rule} — <span class="muted">${l.why}</span></div>`).join('')}
-            <button type="button" class="btn2" id="forgeCopy" style="width:100%;margin-top:10px">Copy hook</button>
+          <div class="card" style="padding:16px;margin-top:14px;border-color:#1B9E4B">
+            <p style="font-size:11px;letter-spacing:.18em;font-weight:900;color:#1B9E4B;margin:0 0 6px">YOU CAN POST THIS TODAY</p>
+            <p style="font-size:13px;font-weight:800;margin:0 0 10px">This is the product of Growth Island — a real opener with your numbers.</p>
+            <pre style="white-space:pre-wrap;font:inherit;font-weight:700;font-size:14px;margin:0 0 12px;line-height:1.5;background:#FFFDF4;border:2px solid #123253;border-radius:12px;padding:12px">${esc(txt)}</pre>
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+              <div style="font-size:36px;font-weight:900;color:${r.score >= 70 ? '#1B9E4B' : '#D9930B'}">${r.score}</div>
+              <div>
+                ${r.shareWorthy ? '<div class="tag" style="background:#E9FBEE">SHARE-WORTHY</div>' : '<div class="tag">Good start — add a number or a soft CTA</div>'}
+                <p class="muted" style="font-size:11px;font-weight:700;margin:4px 0 0">Score = how well it stops the scroll</p>
+              </div>
+            </div>
+            ${r.lines.map((l) => `<div style="font-size:12px;font-weight:700;margin-top:4px">${l.pts}/${l.max} ${l.rule} — <span class="muted">${l.why}</span></div>`).join('')}
+            <button type="button" class="btn" id="forgeCopy" style="width:100%;margin-top:12px">Copy to clipboard — post on LinkedIn</button>
+            <button type="button" class="btn2" id="forgeDone" style="width:100%;margin-top:8px">Done — back to the island</button>
           </div>`;
         this.ui.panelHost.querySelector('#forgeCopy')?.addEventListener('click', async () => {
           try {
             await navigator.clipboard.writeText(txt);
-            this.toast('Hook copied');
+            this.toast('Copied — paste into LinkedIn');
             sfx.win();
           } catch {
-            this.toast('Select and copy manually');
+            this.toast('Select the text and copy manually');
           }
+        });
+        this.ui.panelHost.querySelector('#forgeDone')?.addEventListener('click', () => {
+          this.ui.clearPanel();
+          this.scene?.setBlocked(false);
+          this.toast('Next: explore coaches, or open Menu → Hub');
+          this.refreshHud();
         });
         sfx[r.score >= 70 ? 'win' : 'ui']();
         this.refreshHud();
+        this.toast('Opener forged — copy it and post');
       });
     }
     this.ui.panelHost.querySelector('#cmtGo')?.addEventListener('click', () => {

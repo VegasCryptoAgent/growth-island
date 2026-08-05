@@ -20,7 +20,7 @@ import { sfx } from '../systems/Audio';
 import { GameApp } from '../GameApp';
 import { net, type Peer } from '../systems/Net';
 import { MobileInput } from '../systems/MobileInput';
-
+import { startTutorial } from '../ui/Tutorial';
 
 type Ent = (typeof ENTS)[number] & {
   wx?: number;
@@ -72,185 +72,229 @@ export class OverworldScene extends Phaser.Scene {
   }
 
   /**
-   * Bright classic island ground (v35 / demo videos):
-   * zone-tinted grass, sand paths, beach ring, dense flower motifs.
-   * 8px/tile keeps mobile under budget while matching the flower-field look.
+   * Crisp island ground using real sprite sheets (same as v35 / demo videos).
+   * nature.png grass cells + tiles.png path/sand/water — nearest-neighbor, no mush.
    */
-  paintGround(grid: Uint8Array, det?: Uint8Array) {
+  paintGround(grid: Uint8Array, _det?: Uint8Array) {
     const worldW = MAP_W * TILE;
     const worldH = MAP_H * TILE;
-    const scale = 8;
+    // Full tile resolution so we never stretch 8px doodles
+    const S = TILE;
     const mini = document.createElement('canvas');
-    mini.width = MAP_W * scale;
-    mini.height = MAP_H * scale;
+    mini.width = MAP_W * S;
+    mini.height = MAP_H * S;
     const ctx = mini.getContext('2d')!;
-    const ZPAL: Record<string, string[]> = {
-      plaza: ['#FFFFFF', '#FFD5E4', '#FFE9A8', '#CFE9FF'],
-      feed: ['#CFE9FF', '#FFFFFF', '#B8E4F5', '#E4F0FA'],
-      grove: ['#FF8FB1', '#FFD84D', '#FFFFFF', '#C6F5B8', '#FFB0D0'],
-      forest: ['#C7B2F5', '#8FE8C8', '#FFFFFF', '#A88CF0'],
-      pier: ['#FFD9A0', '#FFFFFF', '#FFC06A', '#FFE8C4'],
-      peak: ['#FFFFFF', '#FFC6E4', '#E4D6F5', '#F5E8FF'],
-      lab: ['#FFC08A', '#FF9E7A', '#FFE0B8', '#FFFFFF'],
+    ctx.imageSmoothingEnabled = false;
+    (ctx as any).webkitImageSmoothingEnabled = false;
+
+    const src = (key: string) => {
+      if (!this.textures.exists(key)) return null;
+      return this.textures.get(key).getSourceImage() as
+        | HTMLImageElement
+        | HTMLCanvasElement
+        | null;
     };
+    const nature = src('nature');
+    const tiles = src('tiles');
+    const water = src('water');
+    const nCell = nature ? Math.floor((nature as HTMLImageElement).width / 8) : 128;
+    const tCell = tiles ? Math.floor((tiles as HTMLImageElement).width / 8) : 64;
+    const wCell = water ? Math.floor((water as HTMLImageElement).width / 8) : 64;
+
     const hash = (x: number, y: number) =>
       ((x * 374761393 + y * 668265263) >>> 0) & 255;
+
+    const blit = (
+      img: HTMLImageElement | HTMLCanvasElement | null,
+      col: number,
+      row: number,
+      cell: number,
+      dx: number,
+      dy: number
+    ) => {
+      if (!img) return false;
+      ctx.drawImage(img, col * cell, row * cell, cell, cell, dx, dy, S + 1, S + 1);
+      return true;
+    };
 
     for (let ty = 0; ty < MAP_H; ty++) {
       for (let tx = 0; tx < MAP_W; tx++) {
         const t = grid[ty * MAP_W + tx];
-        const z = zoneAt(tx, ty) as any;
-        const sx = tx * scale;
-        const sy = ty * scale;
         const h = hash(tx, ty);
+        const dx = tx * S;
+        const dy = ty * S;
 
         if (t === 0) {
-          // sea — soft bands + foam flecks
-          ctx.fillStyle = h % 7 === 0 ? '#5BCDE8' : h % 5 === 0 ? '#7ADFF2' : '#6FD8EE';
-          ctx.fillRect(sx, sy, scale, scale);
-          if (h % 13 === 0) {
-            ctx.fillStyle = 'rgba(255,255,255,0.28)';
-            ctx.fillRect(sx + 2, sy + 4, scale - 4, 1);
-          }
+          // water sheet or tiles water row
+          if (water && blit(water, h % 8, 0, wCell, dx, dy)) continue;
+          if (tiles && blit(tiles, h % 4, 1, tCell, dx, dy)) continue;
+          ctx.fillStyle = h % 5 === 0 ? '#5BCDE8' : '#6FD8EE';
+          ctx.fillRect(dx, dy, S, S);
           continue;
         }
         if (t === 4) {
+          // beach sand from tiles
+          if (tiles && blit(tiles, 4 + (h % 2), 0, tCell, dx, dy)) continue;
           ctx.fillStyle = '#F4E2B0';
-          ctx.fillRect(sx, sy, scale, scale);
-          if (h < 90) {
-            ctx.fillStyle = '#E3CE96';
-            ctx.fillRect(sx + 2 + (h % 3), sy + 3 + (h % 2), 3, 2);
-          }
+          ctx.fillRect(dx, dy, S, S);
+          continue;
+        }
+        if (t === 3) {
+          // path sand
+          if (tiles && blit(tiles, 6 + (h % 2), 0, tCell, dx, dy)) continue;
+          ctx.fillStyle = '#E3CE96';
+          ctx.fillRect(dx, dy, S, S);
           continue;
         }
         if (t === 2) {
-          ctx.fillStyle = h % 2 ? '#8A9A6A' : '#7A8A5A';
-          ctx.fillRect(sx, sy, scale, scale);
-          ctx.fillStyle = 'rgba(255,255,255,0.12)';
-          ctx.fillRect(sx + 1, sy + 1, scale - 2, 2);
+          // rock — nature rock row or solid
+          if (nature && blit(nature, h % 3, 3, nCell, dx, dy)) continue;
+          ctx.fillStyle = '#8A9A6A';
+          ctx.fillRect(dx, dy, S, S);
           continue;
         }
-
-        // grass base (zone tint)
-        const g1 = z?.g || '#89DA8F';
-        const g2 = z?.g2 || '#77CD80';
-        ctx.fillStyle = h % 3 === 1 ? g2 : g1;
-        ctx.fillRect(sx, sy, scale, scale);
-        // grass variance dots
-        if (h < 100) {
-          ctx.fillStyle = g2;
-          ctx.beginPath();
-          ctx.ellipse(sx + 2 + (h % 5), sy + 2 + ((h >> 2) % 5), 2.2, 1.6, 0, 0, 7);
-          ctx.fill();
-        }
-
-        // sand path over grass
-        if (t === 3) {
-          ctx.fillStyle = '#E8D4A0';
-          ctx.fillRect(sx, sy, scale, scale);
-          ctx.fillStyle = '#D9C48A';
-          for (let k = 0; k < 2; k++) {
-            const ox = 1 + ((h + k * 29) % 6);
-            const oy = 1 + ((h + k * 53) % 6);
-            ctx.beginPath();
-            ctx.ellipse(sx + ox, sy + oy, 1.6, 1.2, 0, 0, 7);
-            ctx.fill();
-          }
-          continue;
-        }
-
-        // flower / leaf / sparkle motifs — sized for 8px/tile so they read after upscale
-        const dd = det ? det[ty * MAP_W + tx] : 1 + (h % 8);
-        if (!dd) continue;
-        const pal = ZPAL[z?.id || 'plaza'] || ZPAL.plaza;
-        for (let k = 0; k < 4; k++) {
-          const hh = (h * (k + 3) * 37) & 255;
-          const ox = 1 + (hh % 6);
-          const oy = 1 + ((hh >> 3) % 6);
-          const kind = (dd + k) % 8;
-          const col = pal[(hh >> 2) % pal.length];
-          if (kind === 0) {
-            ctx.strokeStyle = g2;
-            ctx.lineWidth = 1.1;
-            ctx.beginPath();
-            ctx.moveTo(sx + ox, sy + oy + 2.5);
-            ctx.lineTo(sx + ox + 0.6, sy + oy - 1.5);
-            ctx.moveTo(sx + ox + 2, sy + oy + 2.5);
-            ctx.lineTo(sx + ox + 2.4, sy + oy);
-            ctx.stroke();
-          } else if (kind === 1) {
-            ctx.fillStyle = g2;
-            ctx.beginPath();
-            ctx.ellipse(sx + ox, sy + oy, 1.8, 1.3, 0.4, 0, 7);
-            ctx.fill();
-            ctx.fillStyle = 'rgba(255,255,255,0.3)';
-            ctx.beginPath();
-            ctx.ellipse(sx + ox - 0.4, sy + oy - 0.4, 0.7, 0.5, 0.4, 0, 7);
-            ctx.fill();
-          } else if (kind === 2) {
-            // 4-petal flower (readable at game zoom)
-            ctx.fillStyle = col;
-            for (let a = 0; a < 4; a++) {
-              const an = a * 1.57 + 0.5;
-              ctx.beginPath();
-              ctx.ellipse(
-                sx + ox + Math.cos(an) * 1.6,
-                sy + oy + Math.sin(an) * 1.6,
-                1.35,
-                1.0,
-                an,
-                0,
-                7
-              );
-              ctx.fill();
-            }
-            ctx.fillStyle = '#FFE07A';
-            ctx.beginPath();
-            ctx.arc(sx + ox, sy + oy, 1.0, 0, 7);
-            ctx.fill();
-          } else if (kind === 3) {
-            ctx.fillStyle = g2;
-            ctx.beginPath();
-            ctx.ellipse(sx + ox, sy + oy, 2.2, 1.2, 0, 0, 7);
-            ctx.fill();
-          } else if (kind === 4) {
-            ctx.strokeStyle = 'rgba(20,40,60,0.2)';
-            ctx.lineWidth = 1.0;
-            ctx.beginPath();
-            ctx.moveTo(sx + ox - 2, sy + oy);
-            ctx.lineTo(sx + ox, sy + oy - 1.5);
-            ctx.lineTo(sx + ox + 2, sy + oy + 0.5);
-            ctx.stroke();
-          } else if (kind === 5) {
-            ctx.strokeStyle = '#8A6740';
-            ctx.lineWidth = 1.1;
-            ctx.beginPath();
-            ctx.moveTo(sx + ox - 2, sy + oy + 0.5);
-            ctx.lineTo(sx + ox + 2, sy + oy - 0.5);
-            ctx.stroke();
-          } else if (kind === 6) {
-            ctx.fillStyle = col;
-            ctx.beginPath();
-            ctx.arc(sx + ox, sy + oy, 1.6, Math.PI, 0);
-            ctx.fill();
-            ctx.fillStyle = '#FFF6E4';
-            ctx.fillRect(sx + ox - 0.5, sy + oy, 1.0, 1.6);
-          } else {
-            ctx.fillStyle = 'rgba(255,255,255,0.65)';
-            ctx.beginPath();
-            ctx.arc(sx + ox, sy + oy, 1.0, 0, 7);
-            ctx.fill();
-          }
-        }
+        // grass — 8 crisp nature variants (the flower field in the videos)
+        if (nature && blit(nature, h % 8, 0, nCell, dx, dy)) continue;
+        if (tiles && blit(tiles, h % 4, 0, tCell, dx, dy)) continue;
+        ctx.fillStyle = '#7ED87A';
+        ctx.fillRect(dx, dy, S, S);
       }
     }
+
     if (this.textures.exists('gi_ground')) this.textures.remove('gi_ground');
     this.textures.addCanvas('gi_ground', mini);
+    try {
+      this.textures.get('gi_ground').setFilter(Phaser.Textures.FilterMode.NEAREST);
+    } catch {
+      /* */
+    }
     this.add
       .image(0, 0, 'gi_ground')
       .setOrigin(0, 0)
       .setDisplaySize(worldW, worldH)
       .setDepth(0);
+  }
+
+  /** Trees, bushes, rocks, zone centrepieces — real sheet frames, not circles */
+  placeScenery(grid: Uint8Array, det?: Uint8Array) {
+    const hasNat = this.textures.exists('nature') && this.textures.get('nature').has('nat_1_0');
+    const hasBld = this.textures.exists('build') && this.textures.get('build').has('bld_0_0');
+    const hasItm = this.textures.exists('items') && this.textures.get('items').has('itm_0_0');
+
+    // Scatter nature props on grass (skip paths / spawn plaza)
+    for (let ty = 2; ty < MAP_H - 2; ty++) {
+      for (let tx = 2; tx < MAP_W - 2; tx++) {
+        if (grid[ty * MAP_W + tx] !== 1) continue;
+        // keep plaza open
+        if (tx >= 47 && tx <= 57 && ty >= 33 && ty <= 43) continue;
+        const dd = det ? det[ty * MAP_W + tx] : ((tx * 13 + ty * 41) % 8) + 1;
+        const h = ((tx * 374761393 + ty * 668265263) >>> 0) & 255;
+        // sparse: ~1 in 14 grass tiles
+        if (h % 14 !== 0 && h % 17 !== 0) continue;
+        const x = tx * TILE + TILE / 2;
+        const y = ty * TILE + TILE / 2;
+        if (hasNat) {
+          // tree / bush / rock / bloom from nature sheet
+          let frame = 'nat_1_0'; // tree
+          let scale = 1.15;
+          if (h % 5 === 0) {
+            frame = `nat_1_${h % 8}`;
+            scale = 1.25;
+          } else if (h % 5 === 1 || h % 5 === 2) {
+            frame = `nat_2_${h % 8}`;
+            scale = 0.95;
+          } else if (h % 5 === 3) {
+            frame = `nat_3_${h % 3}`;
+            scale = 0.85;
+          } else {
+            frame = 'nat_3_7'; // bloom
+            scale = 0.7;
+          }
+          if (!this.textures.get('nature').has(frame)) continue;
+          const spr = this.add
+            .image(x, y + 4, 'nature', frame)
+            .setOrigin(0.5, 0.9)
+            .setDisplaySize(TILE * scale, TILE * scale)
+            .setDepth(y);
+          void spr;
+          void dd;
+        }
+      }
+    }
+
+    // Authored zone landmarks (v35 PLACES feel)
+    const landmarkFrame: Record<string, { sheet: string; frame: string; scale: number }> = {
+      monument: { sheet: 'build', frame: 'bld_3_3', scale: 2.2 },
+      studio: { sheet: 'build', frame: 'bld_0_1', scale: 2.4 },
+      greattree: { sheet: 'nature', frame: 'nat_1_2', scale: 2.8 },
+      circle: { sheet: 'nature', frame: 'nat_3_1', scale: 2.0 },
+      lighthouse: { sheet: 'items', frame: 'itm_0_6', scale: 2.2 },
+      antenna: { sheet: 'items', frame: 'itm_0_4', scale: 2.0 },
+      forge: { sheet: 'items', frame: 'itm_0_5', scale: 2.2 },
+    };
+
+    for (const m of LMK as any[]) {
+      const z = (ZONES as any[]).find((zz) => zz.id === m.z);
+      if (!z) continue;
+      const tx = z.x + ((z.w / 2 + (m.ox || 0)) | 0);
+      const ty = z.y + ((z.h / 2 + (m.oy || 0)) | 0);
+      const x = tx * TILE + TILE / 2;
+      const y = ty * TILE + TILE / 2;
+      const spec = landmarkFrame[m.k] || landmarkFrame.monument;
+      const ok =
+        (spec.sheet === 'nature' && hasNat) ||
+        (spec.sheet === 'build' && hasBld) ||
+        (spec.sheet === 'items' && hasItm);
+      if (ok && this.textures.get(spec.sheet).has(spec.frame)) {
+        this.add
+          .image(x, y, spec.sheet, spec.frame)
+          .setOrigin(0.5, 0.92)
+          .setDisplaySize(TILE * spec.scale, TILE * spec.scale)
+          .setDepth(y + 2);
+      } else {
+        // fallback solid marker so zone still reads as a place
+        this.add
+          .rectangle(x, y - 10, 22, 28, 0xffffff, 0.95)
+          .setStrokeStyle(2, 0x123253)
+          .setDepth(y + 2);
+      }
+      this.add
+        .text(x, y - TILE * 1.4, m.n, {
+          fontFamily: 'system-ui',
+          fontSize: '10px',
+          color: '#123253',
+          fontStyle: 'bold',
+          backgroundColor: '#ffffffee',
+          padding: { x: 6, y: 2 },
+        })
+        .setOrigin(0.5)
+        .setDepth(y + 4);
+    }
+
+    // Flower clumps along plaza path edges (readable “garden” like videos)
+    if (hasNat) {
+      for (const [tx, ty] of [
+        [48, 36],
+        [56, 36],
+        [48, 40],
+        [56, 40],
+        [50, 34],
+        [54, 34],
+        [50, 42],
+        [54, 42],
+      ] as [number, number][]) {
+        if (grid[ty * MAP_W + tx] === 0) continue;
+        const x = tx * TILE + TILE / 2;
+        const y = ty * TILE + TILE / 2;
+        const frame = `nat_2_${(tx + ty) % 8}`;
+        if (!this.textures.get('nature').has(frame)) continue;
+        this.add
+          .image(x, y, 'nature', frame)
+          .setOrigin(0.5, 0.9)
+          .setDisplaySize(TILE * 0.9, TILE * 0.9)
+          .setDepth(y);
+      }
+    }
   }
 
   create() {
@@ -305,10 +349,12 @@ export class OverworldScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, worldW, worldH);
     console.log('[overworld] camera ok');
 
-    // Bright island like demo videos — flower grass + sand paths
+    // Crisp sheet terrain + real scenery (v35 quality)
     try {
       this.paintGround(grid, det);
-    } catch {
+      this.placeScenery(grid, det);
+    } catch (e) {
+      console.error('[overworld] paint failed', e);
       this.add
         .rectangle(worldW / 2, worldH / 2, worldW, worldH, 0xbfeaf5)
         .setDepth(0);
@@ -317,7 +363,7 @@ export class OverworldScene extends Phaser.Scene {
     for (const z of ZONES as any[]) {
       const cx = (z.x + z.w / 2) * TILE;
       this.add
-        .text(cx, z.y * TILE + 14, z.n, {
+        .text(cx, z.y * TILE + 10, z.n, {
           fontFamily: 'system-ui',
           fontSize: '11px',
           color: z.a || '#0A66C2',
@@ -328,40 +374,12 @@ export class OverworldScene extends Phaser.Scene {
         .setOrigin(0.5)
         .setDepth(40);
     }
-    // Landmark props — soft markers (scroll/star-style accents near zone centres)
-    for (const z of ZONES as any[]) {
-      const cx = (z.x + z.w / 2) * TILE;
-      const cy = (z.y + z.h / 2) * TILE;
-      // flower bush cluster
-      this.add
-        .circle(cx - 10, cy + 4, 6, 0x77cd80)
-        .setStrokeStyle(1, 0x123253)
-        .setDepth(cy);
-      this.add
-        .circle(cx - 6, cy - 2, 5, 0xffd5e4)
-        .setDepth(cy + 1);
-      this.add
-        .circle(cx - 14, cy - 1, 4, 0xffe9a8)
-        .setDepth(cy + 1);
-      // zone crest plaque
-      this.add
-        .rectangle(cx + 12, cy - 6, 16, 16, 0xffffff, 0.95)
-        .setStrokeStyle(2, 0x123253)
-        .setDepth(cy + 2);
-      this.add
-        .circle(
-          cx + 12,
-          cy - 6,
-          5,
-          Phaser.Display.Color.HexStringToColor(z.a || '#0A66C2').color
-        )
-        .setDepth(cy + 3);
-    }
 
-    // Player (Cory) — always spawn on a guaranteed open plaza tile
+    // Player (Cory) — first run always on plaza; resume only after first hook
     let px = 52 * TILE + TILE / 2;
     let py = 38 * TILE + TILE / 2;
-    {
+    const firstRun = !this.save.tools?.forge && !this.save.tools?.audit;
+    if (!firstRun) {
       const sx = this.save.x || px;
       const sy = this.save.y || py;
       const { tx, ty } = worldTile(sx, sy);
@@ -616,23 +634,11 @@ export class OverworldScene extends Phaser.Scene {
     this.blocked = false;
     this.interactGrace = 90;
 
-    // Soft classic tip only — videos jump straight into walking + Ivy, no cyber hub guide
+    // First sail: clear value-prop onboarding (what the game is + 3-step path)
     if (this.registry.get('intro')) {
       this.registry.set('intro', false);
-      this.time.delayedCall(500, () => {
-        if (!this.app) return;
-        // Skip multi-step modal if player has never met Ivy — toast is enough
-        try {
-          const g = this.save;
-          if (!g.seen?.includes('ivy') && !g.sq?.tutorial) {
-            this.app.toast('Walk to Ivy — she is on the plaza path');
-            // mark so we don't spam; full tutorial still available via startTutorial
-            g.sq = g.sq || {};
-            // leave tutorial unset so Menu can re-show if needed
-          }
-        } catch {
-          /* */
-        }
+      this.time.delayedCall(450, () => {
+        if (this.app) startTutorial(this.app);
       });
     }
 
@@ -1120,30 +1126,19 @@ export class OverworldScene extends Phaser.Scene {
 
   objectiveText(): string {
     const g = this.save;
-    // Match demo videos: progressive quest card text
-    if (!g.seen?.includes('ivy') && !(g.connections?.length > 0)) {
-      return 'Find Ivy · Profile Plaza';
-    }
-    if (!g.team.includes('proof') && !g.tools?.audit) {
-      return 'Talk to Ivy · Profile Architect';
-    }
-    if (!g.team.includes('hook') && !g.tools?.forge) {
-      return 'Find HookHero';
-    }
-    if (!g.tools?.forge) return 'Forge a real opener';
-    if (!g.tools?.audit) return 'Run a Profile Audit';
-    if (!g.games?.feed?.best) return 'Play The Feed';
+    // Clear 3-step value path — player always knows what to do next
+    if (!g.seen?.includes('ivy')) return '1/3 Talk to Ivy (walk to her)';
+    if (!g.tools?.audit && !g.tools?.forge) return '1/3 Finish Ivy\'s intro';
+    if (!g.tools?.forge) return '2/3 Forge a real opener';
+    if (!g.tools?.audit) return '3/3 Run a Profile Audit';
+    // After first value loop — optional practice
+    if (!g.games?.feed?.best) return 'Practice: play The Feed';
     const puzzlesToday = Object.values(g.puzzles || {}).filter(
       (p: any) => p.d === dayKey()
     ).length;
-    if (puzzlesToday < 3) return `Daily puzzles ${puzzlesToday}/3`;
+    if (puzzlesToday < 3) return `Practice: puzzles ${puzzlesToday}/3`;
     if (g.team.length < 7) return `Collect Signals (${g.team.length}/7)`;
-    const daily = g.daily;
-    if (daily && !daily.done && daily.day) {
-      const best = g.games?.feed?.best || 0;
-      return `Daily: Feed ${best.toLocaleString()}/${daily.target.toLocaleString()}`;
-    }
-    if (!g.best || g.best < 70) return 'Score a hook at Signal Tower';
-    return 'Keep growing — Hub has everything';
+    if (!g.best || g.best < 70) return 'Score 70+ on a hook';
+    return 'You\'re set — explore coaches & Hub';
   }
 }
