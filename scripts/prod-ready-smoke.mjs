@@ -181,10 +181,11 @@ async function main() {
 
     await page.evaluate(() => {
       window.__GI_APP.ui.clearPanel();
+      window.__GI_APP.dlg = null;
       window.__GI_APP.scene.blocked = false;
       document.body.classList.remove('overlay');
+      window.__GI_APP.openJournal();
     });
-    await page.click('#btnJournal');
     await page.waitForTimeout(350);
     t = await panelText(page);
     ok('hud journal', /journal|streak|quest/i.test(t));
@@ -194,8 +195,8 @@ async function main() {
       window.__GI_APP.dlg = null;
       window.__GI_APP.scene.blocked = false;
       document.body.classList.remove('overlay');
+      window.__GI_APP.openPause();
     });
-    await page.click('#btnMenu');
     await page.waitForTimeout(350);
     t = await panelText(page);
     ok('hud menu', /paused|resume|account|leaderboard/i.test(t));
