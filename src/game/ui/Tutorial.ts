@@ -63,8 +63,8 @@ export function startTutorial(app: GameApp) {
         <p style="font-size:12px;font-weight:700;color:#5C7A99;margin:0 0 14px">
           ${
             isTouch
-              ? 'Use the D-pad (bottom left) or drag to walk. Tap Talk when you are next to Ivy.'
-              : 'WASD / arrows to walk · Space or E near Ivy · Talk button works too.'
+              ? 'D-pad to walk. When you get close, Ivy talks automatically — or tap her, or the blue Talk button.'
+              : 'WASD to walk. When you get close, Ivy talks automatically — or click her / press Space.'
           }
         </p>
         <button type="button" class="btn" id="tutGo" style="width:100%">Find Ivy — let's go</button>

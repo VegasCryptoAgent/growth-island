@@ -489,10 +489,10 @@ export class OverworldScene extends Phaser.Scene {
       const isCoach = e.k === 'npc';
       const sprite = this.add
         .sprite(wx, wy, key)
-        .setDisplaySize(isCoach ? 40 : 36, isCoach ? 48 : 44)
+        .setDisplaySize(isCoach ? 44 : 36, isCoach ? 52 : 44)
         .setDepth(wy)
         .setOrigin(0.5, 0.9);
-      // Name plate like videos (white pill) — "!" only for unmet coaches
+      // Name plate like videos (white pill)
       const labelTxt = e.k === 'foe' ? '⚠' : e.n || '!';
       const label = this.add
         .text(wx, wy - 42, labelTxt, {
@@ -505,6 +505,27 @@ export class OverworldScene extends Phaser.Scene {
         })
         .setOrigin(0.5)
         .setDepth(wy + 2);
+      // Click / tap the character or name plate to talk (not just the Talk button)
+      const entRef = { id: e.id } as Ent;
+      const onTap = () => {
+        if (this.blocked) return;
+        const live = this.ents.find((x) => x.id === entRef.id);
+        if (live) this.app?.startDialogue?.(live);
+      };
+      try {
+        sprite.setInteractive({ useHandCursor: true, pixelPerfect: false });
+        sprite.on('pointerdown', (ptr: Phaser.Input.Pointer) => {
+          ptr.event?.stopPropagation?.();
+          onTap();
+        });
+        label.setInteractive({ useHandCursor: true });
+        label.on('pointerdown', (ptr: Phaser.Input.Pointer) => {
+          ptr.event?.stopPropagation?.();
+          onTap();
+        });
+      } catch {
+        /* interactive optional if texture missing */
+      }
       return {
         ...e,
         wx,
@@ -848,22 +869,47 @@ export class OverworldScene extends Phaser.Scene {
     return best;
   }
 
-  nearestEnt(radius = 48): Ent | null {
-    let best: Ent | null = null;
-    let bd = radius;
+  /**
+   * Nearest talkable entity. Prefers coaches (npc) over spots/foes so
+   * "Talk to Ivy" always wins when she's in range.
+   */
+  nearestEnt(radius = 120): Ent | null {
+    let bestNpc: Ent | null = null;
+    let bestAny: Ent | null = null;
+    let bdNpc = radius;
+    let bdAny = radius;
     for (const e of this.ents) {
+      if (!e.sprite) continue;
       const d = Phaser.Math.Distance.Between(
         this.player.x,
         this.player.y,
-        e.sprite!.x,
-        e.sprite!.y
+        e.sprite.x,
+        e.sprite.y
       );
-      if (d < bd) {
-        bd = d;
-        best = e;
+      if (d < bdAny) {
+        bdAny = d;
+        bestAny = e;
+      }
+      // Prefer living coaches for the primary Talk action
+      if (e.k === 'npc' && d < bdNpc) {
+        bdNpc = d;
+        bestNpc = e;
       }
     }
-    return best;
+    // First-run: hard-prefer Ivy if she's within a generous radius
+    if (!this.save?.tools?.forge) {
+      const ivy = this.ents.find((e) => e.id === 'ivy' && e.sprite);
+      if (ivy?.sprite) {
+        const d = Phaser.Math.Distance.Between(
+          this.player.x,
+          this.player.y,
+          ivy.sprite.x,
+          ivy.sprite.y
+        );
+        if (d < Math.max(radius, 160)) return ivy;
+      }
+    }
+    return bestNpc || bestAny;
   }
 
   update(_t: number, dtMs: number) {
@@ -1091,27 +1137,32 @@ export class OverworldScene extends Phaser.Scene {
   /** NPCs walk around their home so the hub feels alive */
   private tickNpcs(dtMs: number) {
     const dt = Math.min(2.5, Math.max(0.5, dtMs / 16.67));
+    let nearPrompt: Ent | null = null;
+    let nearDist = 9999;
     for (const e of this.ents) {
       if (!e.sprite) continue;
-      if (e.k === 'npc' || e.k === 'spot' || e.k === 'foe') {
-        // Noticeable patrol — larger radius, faster
-        e.patrol = (e.patrol || 0) + 0.022 * dt;
-        const ampX = e.k === 'foe' ? 28 : 36;
-        const ampY = e.k === 'foe' ? 18 : 24;
+      // Ivy stays put until you've talked — so "walk to her" always works
+      const canPatrol =
+        e.k === 'foe' ||
+        (e.k === 'npc' && e.id !== 'ivy') ||
+        (e.k === 'npc' && this.save?.seen?.includes('ivy'));
+      if (canPatrol && (e.k === 'npc' || e.k === 'spot' || e.k === 'foe')) {
+        e.patrol = (e.patrol || 0) + 0.018 * dt;
+        const ampX = e.k === 'foe' ? 28 : 22;
+        const ampY = e.k === 'foe' ? 18 : 14;
         const ox = Math.cos(e.patrol!) * ampX;
         const oy = Math.sin(e.patrol! * 0.85) * ampY;
         const tx = e.homeX! + ox;
         const ty = e.homeY! + oy;
-        e.sprite.x = Phaser.Math.Linear(e.sprite.x, tx, 0.06 * dt);
-        e.sprite.y = Phaser.Math.Linear(e.sprite.y, ty, 0.06 * dt);
-        // Face walk direction
+        e.sprite.x = Phaser.Math.Linear(e.sprite.x, tx, 0.05 * dt);
+        e.sprite.y = Phaser.Math.Linear(e.sprite.y, ty, 0.05 * dt);
         const dx = tx - e.sprite.x;
         if (Math.abs(dx) > 0.4) e.sprite.setFlipX(dx < 0);
-        e.sprite.setDepth(e.sprite.y);
-        if (e.label) {
-          e.label.setPosition(e.sprite.x, e.sprite.y - 48);
-          e.label.setDepth(e.sprite.y + 2);
-        }
+      }
+      e.sprite.setDepth(e.sprite.y);
+      if (e.label) {
+        e.label.setPosition(e.sprite.x, e.sprite.y - 48);
+        e.label.setDepth(e.sprite.y + 2);
       }
       const d = Phaser.Math.Distance.Between(
         this.player.x,
@@ -1119,9 +1170,74 @@ export class OverworldScene extends Phaser.Scene {
         e.sprite.x,
         e.sprite.y
       );
-      // No auto-dialogue — mobile users must press Talk
-      if (d > 70) e.arm = true;
+      // Re-arm when you walk away so approaching again can re-trigger
+      if (d > 90) e.arm = true;
+
+      // Track nearest coach for HUD prompt
+      if ((e.k === 'npc' || e.k === 'spot') && d < nearDist) {
+        nearDist = d;
+        nearPrompt = e;
+      }
+
+      // AUTO-TALK on approach (demo videos) — coaches greet you
+      if (
+        !this.blocked &&
+        this.interactGrace <= 0 &&
+        e.arm &&
+        e.k === 'npc' &&
+        d < 64
+      ) {
+        e.arm = false;
+        this.app?.startDialogue?.(e);
+        return; // one dialogue at a time
+      }
     }
+    // Floating "press Talk" hint for the nearest coach in range
+    this.updateNearPrompt(nearPrompt, nearDist);
+  }
+
+  private nearPromptEl: HTMLElement | null = null;
+  private updateNearPrompt(e: Ent | null, dist: number) {
+    if (!this.nearPromptEl) {
+      this.nearPromptEl = document.getElementById('gi-near-prompt');
+      if (!this.nearPromptEl) {
+        const el = document.createElement('button');
+        el.id = 'gi-near-prompt';
+        el.type = 'button';
+        el.className = 'gi-near-prompt';
+        el.style.display = 'none';
+        document.body.appendChild(el);
+        el.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+          this.app?.talkOrAdvance?.();
+        });
+        el.addEventListener(
+          'touchend',
+          (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            this.app?.talkOrAdvance?.();
+          },
+          { passive: false }
+        );
+        this.nearPromptEl = el;
+      }
+    }
+    const el = this.nearPromptEl;
+    if (
+      !e ||
+      this.blocked ||
+      document.body.classList.contains('overlay') ||
+      dist > 90
+    ) {
+      el.style.display = 'none';
+      document.getElementById('actTalk')?.classList.remove('pulse');
+      return;
+    }
+    el.style.display = 'flex';
+    el.innerHTML = `<span>💬</span><b>Talk to ${e.n || 'coach'}</b>`;
+    document.getElementById('actTalk')?.classList.add('pulse');
   }
 
   objectiveText(): string {

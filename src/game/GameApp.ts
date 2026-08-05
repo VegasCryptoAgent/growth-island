@@ -247,14 +247,14 @@ export class GameApp {
 
   talkOrAdvance() {
     if (this.dlg) return this.advanceDialogue();
-    // Generous radius on mobile — thumb + finger-drag makes precise approach hard
-    const e = this.scene?.nearestEnt(110);
-    if (e) this.startDialogue(e);
-    else {
-      this.toast('No one nearby — open Connect for the Hub directory');
-      // Soft fallback: open hub so features are never unreachable
-      this.openConnect();
+    // Generous radius — prefer coaches (Ivy first onboarding)
+    const e = this.scene?.nearestEnt(160);
+    if (e) {
+      this.startDialogue(e);
+      return;
     }
+    // Do NOT dump the player into Hub when they meant to talk — that was confusing
+    this.toast('Walk closer to a coach, then press Talk (💬) or tap them');
   }
 
   startDialogue(e: any) {

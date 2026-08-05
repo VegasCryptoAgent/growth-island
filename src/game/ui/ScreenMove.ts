@@ -114,10 +114,10 @@ export class ScreenMove {
   /** True if this event landed on HUD / panels / forms — never steal it */
   private isUiTarget(t: EventTarget | null): boolean {
     if (!(t instanceof Element)) return false;
-    // Interactive UI
+    // Interactive UI (include near-prompt so Talk doesn't become a walk)
     if (
       t.closest(
-        'button, a, input, textarea, select, label, .choice, .card, .panel, .overlay-dim, .overlay-bottom, .cyber-dlg, .cyber-act, .cyber-panel, .cyber-actions, .cyber-inv, .cyber-stats, .cyber-minimap, #panelHost, #toastHost, #ui-root button, #gi-title-ui, .title-ui, .pad-btn'
+        'button, a, input, textarea, select, label, .choice, .card, .panel, .overlay-dim, .overlay-bottom, .cyber-dlg, .cyber-act, .cyber-panel, .cyber-actions, .cyber-inv, .cyber-stats, .cyber-minimap, #panelHost, #toastHost, #ui-root button, #gi-title-ui, .title-ui, .pad-btn, #gi-near-prompt, .gi-near-prompt, #gi-touch-pad, .gi-dpad, .gi-dbtn'
       )
     ) {
       return true;

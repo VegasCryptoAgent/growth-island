@@ -112,6 +112,27 @@ html,body,#app{
 }
 .hud-fab:active{transform:translateY(3px);box-shadow:0 1px 0 #9FB6CE}
 .hud-fab-talk{background:#0A66C2;color:#fff;box-shadow:0 4px 0 #0B4C90}
+.hud-fab.pulse{
+  animation:giTalkPulse 1s ease-in-out infinite;
+  box-shadow:0 0 0 4px rgba(10,102,194,.35),0 4px 0 #0B4C90;
+}
+@keyframes giTalkPulse{
+  0%,100%{transform:scale(1)}
+  50%{transform:scale(1.08)}
+}
+/* Big floating prompt when standing next to a coach */
+.gi-near-prompt{
+  position:fixed;left:50%;bottom:max(100px, env(safe-area-inset-bottom));
+  transform:translateX(-50%);
+  z-index:35;display:none;align-items:center;gap:10px;
+  background:#0A66C2;color:#fff;border:2.5px solid #123253;
+  border-radius:18px;padding:12px 18px;font:inherit;font-weight:900;
+  font-size:15px;box-shadow:0 5px 0 #0B4C90;cursor:pointer;
+  pointer-events:auto;-webkit-user-select:none;user-select:none;
+}
+.gi-near-prompt:active{transform:translateX(-50%) translateY(3px);box-shadow:0 2px 0 #0B4C90}
+.gi-near-prompt span{font-size:20px}
+body.overlay .gi-near-prompt,body.on-title .gi-near-prompt{display:none!important}
 .hud-minimap{
   width:120px;height:96px;position:relative;overflow:hidden;padding:0;
   background:linear-gradient(160deg,#E8F6FC,#C8E8A8 55%,#F4E2B0);
