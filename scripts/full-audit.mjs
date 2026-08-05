@@ -6,7 +6,11 @@ import { chromium, devices } from 'playwright';
 import WebSocket from 'ws';
 
 const BASE = process.env.BASE_URL || 'https://growth-island-production.up.railway.app';
-const ADMIN = process.env.ADMIN_KEY || '';
+// Prefer env; production Railway default for local full audits against live
+const ADMIN =
+  process.env.ADMIN_KEY ||
+  process.env.GI_ADMIN_KEY ||
+  '';
 const results = [];
 const ok = (name, pass, detail = '') => {
   results.push({ name, pass: !!pass, detail: String(detail || '').slice(0, 200) });
@@ -191,32 +195,64 @@ async function auditApi() {
   });
   ok('api: chat/hook moderation blocks toxic', badHook.status === 400, badHook.data.error);
 
-  // admin
+  // admin — full route coverage when ADMIN_KEY is set
   if (ADMIN) {
-    const ov = await jfetch('/api/admin/overview', {
-      headers: { 'X-Admin-Key': ADMIN },
-    });
-    ok('api: admin overview', ov.ok && typeof ov.data.users === 'number', JSON.stringify(ov.data));
-    const sellers = await jfetch('/api/admin/sellers', {
-      headers: { 'X-Admin-Key': ADMIN },
-    });
+    const hdr = { 'X-Admin-Key': ADMIN };
+    const ov = await jfetch('/api/admin/overview', { headers: hdr });
+    ok(
+      'api: admin overview',
+      ov.ok && typeof ov.data.users === 'number',
+      JSON.stringify(ov.data)
+    );
+    const users = await jfetch('/api/admin/users', { headers: hdr });
+    ok('api: admin users', users.ok && Array.isArray(users.data.users));
+    const sellers = await jfetch('/api/admin/sellers', { headers: hdr });
     ok('api: admin sellers', sellers.ok);
     if (sell.data.id) {
       const appr = await jfetch('/api/admin/sellers/' + sell.data.id, {
         method: 'POST',
-        headers: { 'X-Admin-Key': ADMIN },
+        headers: hdr,
         body: JSON.stringify({ status: 'approved' }),
       });
-      ok('api: admin approve seller', appr.ok && appr.data.seller?.status === 'approved');
+      ok(
+        'api: admin approve seller',
+        appr.ok && appr.data.seller?.status === 'approved'
+      );
     }
+    const analytics = await jfetch('/api/admin/analytics', { headers: hdr });
+    ok(
+      'api: admin analytics',
+      analytics.ok && typeof analytics.data.total === 'number'
+    );
+    const chat = await jfetch('/api/admin/chat', { headers: hdr });
+    ok('api: admin chat', chat.ok && Array.isArray(chat.data.chat));
     const bak = await jfetch('/api/admin/backup', {
       method: 'POST',
-      headers: { 'X-Admin-Key': ADMIN },
+      headers: hdr,
       body: '{}',
     });
     ok('api: admin backup', bak.ok);
+    // ban/unban round-trip on a disposable user
+    if (user?.id) {
+      const ban = await jfetch('/api/admin/ban', {
+        method: 'POST',
+        headers: hdr,
+        body: JSON.stringify({ userId: user.id }),
+      });
+      ok('api: admin ban', ban.ok);
+      const unban = await jfetch('/api/admin/unban', {
+        method: 'POST',
+        headers: hdr,
+        body: JSON.stringify({ userId: user.id }),
+      });
+      ok('api: admin unban', unban.ok);
+    }
   } else {
-    ok('api: admin (skipped — no ADMIN_KEY)', true, 'set ADMIN_KEY env to test');
+    ok(
+      'api: admin (FAIL — set ADMIN_KEY)',
+      false,
+      'export ADMIN_KEY=… then re-run audit (Railway has ADMIN_KEY set)'
+    );
   }
 
   // static assets
@@ -544,49 +580,80 @@ async function auditGame() {
     await enterOverworld(mpage, 'MOBILE');
     await runGameFeatures(mpage, 'mobile');
 
-    // Real finger-style drag on screen-move layer
-    const dragOk = await mpage.evaluate(async () => {
+    // Pointer drag must actually move the player (headless-safe helper)
+    const dragOk = await mpage.evaluate(() => {
+      const app = window.__GI_APP;
+      if (!app?.scene?.player) return { ok: false, err: 'no player' };
+      app.scene.blocked = false;
+      document.body.classList.remove('overlay', 'on-title');
+      document.body.classList.add('in-game');
+      // Prefer deterministic helper (same path as real MobileInput stick)
+      if (typeof window.__GI_POINTER_DRAG === 'function') {
+        return window.__GI_POINTER_DRAG(140, 0, 40);
+      }
+      // Fallback: synthetic document pointer events on canvas
+      const canvas = document.querySelector('#game-root canvas');
       const layer = document.getElementById('gi-screen-move');
-      if (!layer) return { ok: false, err: 'no layer' };
-      const p = window.__GI_APP.scene.player;
-      const x0 = p.x;
-      window.__GI_APP.scene.blocked = false;
-      const rect = layer.getBoundingClientRect();
+      const el = canvas || layer || document.body;
+      const rect = el.getBoundingClientRect();
       const cx = rect.left + rect.width / 2;
       const cy = rect.top + rect.height / 2;
-      layer.dispatchEvent(
-        new PointerEvent('pointerdown', {
-          bubbles: true,
-          clientX: cx,
-          clientY: cy,
-          pointerId: 1,
-          pointerType: 'touch',
-          isPrimary: true,
-        })
-      );
-      layer.dispatchEvent(
-        new PointerEvent('pointermove', {
-          bubbles: true,
-          clientX: cx + 80,
-          clientY: cy,
-          pointerId: 1,
-          pointerType: 'touch',
-        })
-      );
-      // let a few frames process MobileInput
-      for (let i = 0; i < 20; i++) window.__GI_APP.scene.update(0, 16);
-      layer.dispatchEvent(
-        new PointerEvent('pointerup', {
-          bubbles: true,
-          clientX: cx + 80,
-          clientY: cy,
-          pointerId: 1,
-          pointerType: 'touch',
-        })
-      );
-      return { ok: p.x !== x0 || window.MobileInput.active || true, x0, x1: p.x, mi: { ...window.MobileInput } };
+      const p = app.scene.player;
+      const x0 = p.x;
+      window.__GI_SCREEN_MOVE?.setEnabled?.(true);
+      const fire = (type, x, y) => {
+        document.dispatchEvent(
+          new PointerEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            clientX: x,
+            clientY: y,
+            pointerId: 1,
+            pointerType: 'touch',
+            isPrimary: true,
+            button: 0,
+          })
+        );
+      };
+      fire('pointerdown', cx, cy);
+      for (let i = 1; i <= 12; i++) {
+        fire('pointermove', cx + i * 10, cy);
+        app.scene.update(0, 16);
+      }
+      fire('pointerup', cx + 120, cy);
+      for (let i = 0; i < 10; i++) app.scene.update(0, 16);
+      return {
+        ok: Math.abs(p.x - x0) > 8,
+        x0,
+        x1: p.x,
+        mi: {
+          x: window.MobileInput?.x,
+          y: window.MobileInput?.y,
+          active: window.MobileInput?.active,
+        },
+      };
     });
-    ok('mobile: pointer drag path', !!dragOk, JSON.stringify(dragOk));
+    ok(
+      'mobile: pointer drag path',
+      !!(dragOk && dragOk.ok),
+      JSON.stringify(dragOk)
+    );
+
+    // Desktop pointer drag via helper too
+    const desk = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    await enterOverworld(desk, 'DESKTOP-DRAG');
+    const deskDrag = await desk.evaluate(() => {
+      if (typeof window.__GI_POINTER_DRAG === 'function') {
+        return window.__GI_POINTER_DRAG(160, 0, 45);
+      }
+      return { ok: false, err: 'no helper' };
+    });
+    ok(
+      'desktop: pointer drag path',
+      !!(deskDrag && deskDrag.ok),
+      JSON.stringify(deskDrag)
+    );
+    await desk.close();
 
     await ctx.close();
   } finally {

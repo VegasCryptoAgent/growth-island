@@ -13,7 +13,9 @@
     "start": "node server/index.mjs",
     "typecheck": "tsc --noEmit",
     "smoke": "node scripts/smoke-movement.mjs",
+    "smoke:pointer": "node scripts/smoke-pointer-move.mjs",
     "audit": "node scripts/full-audit.mjs",
+    "audit:prod": "BASE_URL=https://growth-island-production.up.railway.app node scripts/full-audit.mjs",
     "ci:smoke": "npm run build && node server/index.mjs & sleep 2 && BASE_URL=http://127.0.0.1:8787 node scripts/smoke-movement.mjs"
   },
   "engines": {

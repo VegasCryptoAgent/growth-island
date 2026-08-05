@@ -248,14 +248,40 @@ export class GameApp {
 
   talkOrAdvance() {
     if (this.dlg) return this.advanceDialogue();
-    // Generous radius — prefer coaches (Ivy first onboarding)
-    const e = this.scene?.nearestEnt(160);
+    if (!this.scene) return;
+
+    // 1) Anyone already in range
+    let e = this.scene.nearestEnt(160);
     if (e) {
       this.startDialogue(e);
       return;
     }
-    // Do NOT dump the player into Hub when they meant to talk — that was confusing
-    this.toast('Walk closer to a coach, then press Talk (💬) or tap them');
+
+    // 2) No one in range — walk the player to the best coach and open dialogue
+    //    (Talk never dead-ends with only a toast)
+    const preferred =
+      this.scene.ents?.find(
+        (x: any) =>
+          x.id === 'ivy' &&
+          x.sprite &&
+          !this.save().seen?.includes('ivy')
+      ) ||
+      this.scene.ents?.find((x: any) => x.k === 'npc' && x.sprite) ||
+      this.scene.ents?.find((x: any) => x.sprite && (x.k === 'npc' || x.k === 'spot'));
+
+    if (preferred?.sprite) {
+      this.guideToEnt(preferred);
+      this.toast(`Talking with ${preferred.n || 'coach'}`);
+      // Small delay so position settles, then open
+      window.setTimeout(() => {
+        if (!this.dlg) this.startDialogue(preferred);
+      }, 80);
+      return;
+    }
+
+    // 3) Absolute fallback — Hub mentor directory
+    this.toast('Opening Hub — pick a coach to talk to');
+    this.openConnect();
   }
 
   startDialogue(e: any) {
