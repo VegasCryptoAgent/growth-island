@@ -95,20 +95,26 @@ export function generateIsland(): {
     grid[i] = 4;
   });
 
-  // Scatter rocks + motifs inside zones (away from paths / keepouts)
+  // Scatter rocks + dense flower/leaf motifs on every grass tile (v35 look)
   for (const z of ZONES as any[]) {
-    for (let y = z.y + 1; y < z.y + z.h - 1; y++)
-      for (let x = z.x + 1; x < z.x + z.w - 1; x++) {
-        if (get(x, y) !== 1) continue;
-        let byPath = false;
-        for (let dy = -1; dy <= 1 && !byPath; dy++)
-          for (let dx = -1; dx <= 1; dx++)
-            if (get(x + dx, y + dy) === 3) byPath = true;
+    for (let y = z.y; y < z.y + z.h; y++)
+      for (let x = z.x; x < z.x + z.w; x++) {
+        const t = get(x, y);
+        if (t !== 1 && t !== 3) continue;
+        let byPath = t === 3;
+        if (!byPath) {
+          for (let dy = -1; dy <= 1 && !byPath; dy++)
+            for (let dx = -1; dx <= 1; dx++)
+              if (get(x + dx, y + dy) === 3) byPath = true;
+        }
         const r = rnd();
-        if (!byPath && r < 0.03) set(x, y, 2);
-        else det[y * MAP_W + x] = 1 + (((r * 997) | 0) % 8);
+        // rocks only deep inside grass, sparse
+        if (t === 1 && !byPath && r < 0.02) set(x, y, 2);
+        // motifs on grass (paths stay clean sand)
+        if (t === 1) det[y * MAP_W + x] = 1 + (((r * 997) | 0) % 8);
       }
   }
+  // Motifs on fill-land grass too (ellipse expansion below runs after — re-seed later)
 
   // Expand walkable: fill sea near land so island feels connected (soft ellipse fill)
   const cx = MAP_W / 2,
@@ -118,16 +124,17 @@ export function generateIsland(): {
       if (grid[y * MAP_W + x]) continue;
       const nx = (x - cx) / (MAP_W * 0.4);
       const ny = (y - cy) / (MAP_H * 0.38);
-      if (nx * nx + ny * ny < 0.85) set(x, y, 1);
+      if (nx * nx + ny * ny < 0.85) {
+        set(x, y, 1);
+        if (!det[y * MAP_W + x])
+          det[y * MAP_W + x] = 1 + ((((x * 17 + y * 31) * 997) | 0) % 8);
+      }
     }
-  // re-beach
-  for (let y = 1; y < MAP_H - 1; y++)
-    for (let x = 1; x < MAP_W - 1; x++) {
-      if (get(x, y) !== 1) continue;
-      if (
-        N8.some(([dx, dy]) => get(x + dx, y + dy) === 0)
-      ) {
-        // leave grass; beach already set on outer ring
+  // Seed flower det on any grass still missing it
+  for (let y = 0; y < MAP_H; y++)
+    for (let x = 0; x < MAP_W; x++) {
+      if (grid[y * MAP_W + x] === 1 && !det[y * MAP_W + x]) {
+        det[y * MAP_W + x] = 1 + ((((x * 13 + y * 41) * 997) | 0) % 8);
       }
     }
 

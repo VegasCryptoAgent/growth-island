@@ -261,6 +261,10 @@ export class GameApp {
     if (this.dlg || !this.scene) return;
     const g = this.save();
     const met = g.seen.includes(e.id);
+    if (!g.seen.includes(e.id)) {
+      g.seen.push(e.id);
+      writeSave(g);
+    }
     this.scene.setBlocked(true);
     document.body.classList.add('overlay');
     sfx.ui();
@@ -293,7 +297,7 @@ export class GameApp {
       const greet =
         e.id === 'g_scroll'
           ? 'Ready for another round in the Feed?'
-          : e.id === 'ivy' || e.n === 'Lia'
+          : e.id === 'ivy'
             ? "Welcome back. Let's keep building your profile and network."
             : `Good to see you again. ${e.role || ''}`.trim();
       // Keep full script so tools/games/puzzle choices still unlock
@@ -393,6 +397,29 @@ export class GameApp {
     el.addEventListener('touchend', run, { passive: false });
   }
 
+  /** Classic v35 dialogue card — white bottom sheet, avatar + name + role */
+  private dlgShell(
+    name: string,
+    role: string,
+    bodyHtml: string,
+    accent = '#0A66C2'
+  ) {
+    const initial = (name || '?').slice(0, 1).toUpperCase();
+    return `
+      <div class="overlay-dim dlg-layer" style="align-items:flex-end;padding-bottom:max(12px,env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(191,234,245,.92) 35%)">
+        <div class="card pop gi-dlg" style="max-width:720px;width:100%;margin:0 auto;padding:16px 18px">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+            <div class="gi-dlg-avatar" style="background:${accent}22;color:${accent}">${esc(initial)}</div>
+            <div style="min-width:0">
+              <p class="gi-dlg-name" style="color:${accent}">${esc(name)}</p>
+              <p class="gi-dlg-role">${esc(role)}</p>
+            </div>
+          </div>
+          ${bodyHtml}
+        </div>
+      </div>`;
+  }
+
   renderDlg(): void {
     if (!this.dlg) return;
     const { e, q } = this.dlg;
@@ -401,10 +428,7 @@ export class GameApp {
     const n = q[0];
     const name = e.n || 'Someone';
     const role = e.role || '';
-    const isLia = e.id === 'ivy' || e.n === 'Lia';
-    const portrait = isLia
-      ? './assets/generated/hub/portrait-lia.png'
-      : './assets/generated/hub/portrait-cory.png';
+    const accent = e.c || '#0A66C2';
     const canConnect = e.k === 'npc' || e.k === 'spot';
 
     if (n && 'askNode' in n) {
@@ -416,20 +440,23 @@ export class GameApp {
         this.dlg.q.shift();
         return this.renderDlg();
       }
-      this.ui.showPanel(`
-        <div class="overlay-dim dlg-layer" style="align-items:flex-end;padding-bottom:24px">
-          <div class="card pop" style="max-width:720px;width:100%;margin:0 auto;padding:16px">
-            <div style="font-weight:900;margin-bottom:4px;color:#0A66C2">${esc(name)} · Ask me</div>
-            <p style="font-weight:700;margin:0 0 10px">${asked.length ? 'Anything else?' : 'Ask me anything before you go.'}</p>
-            ${left
-              .map(
-                (x: { a: { q: string }; i: number }) =>
-                  `<button type="button" class="choice" data-ask="${x.i}">${esc(x.a.q)}</button>`
-              )
-              .join('')}
-            <button type="button" class="btn2" id="askDone" style="width:100%;margin-top:8px">That's all — continue</button>
-          </div>
-        </div>`);
+      this.ui.showPanel(
+        this.dlgShell(
+          name,
+          role || 'Ask me',
+          `<p style="font-weight:700;margin:0 0 10px;font-size:15px">${
+            asked.length ? 'Anything else?' : 'Ask me anything before you go.'
+          }</p>
+          ${left
+            .map(
+              (x: { a: { q: string }; i: number }) =>
+                `<button type="button" class="choice" data-ask="${x.i}">${esc(x.a.q)}</button>`
+            )
+            .join('')}
+          <button type="button" class="btn2" id="askDone" style="width:100%;margin-top:8px">That's all — continue</button>`,
+          accent
+        )
+      );
       this.ui.panelHost.querySelectorAll('[data-ask]').forEach((b) =>
         this.bindTap(b, () => {
           const i = +(b as HTMLElement).dataset.ask!;
@@ -450,30 +477,22 @@ export class GameApp {
     }
 
     if (n && 'q' in n && n.o) {
-      this.ui.showPanel(`
-        <div class="overlay-dim dlg-layer" style="align-items:flex-end;padding-bottom:20px">
-          <div class="cyber-dlg pop" style="position:relative;left:auto;bottom:auto;transform:none;width:min(920px,100%)">
-            <div class="cyber-dlg-portrait">
-              <img src="${portrait}" alt="${esc(name)}" />
-            </div>
-            <div class="cyber-dlg-body">
-              <div class="cyber-dlg-name">${esc(name)} · ${esc(role)}</div>
-              <div class="cyber-dlg-text">${esc(n.q)}</div>
-              <div id="dlgChoices" style="margin-top:10px">
-                ${n.o
-                  .map(
-                    (o, i) =>
-                      `<button type="button" class="choice" data-i="${i}" style="margin:6px 0">${esc(o.say)}</button>`
-                  )
-                  .join('')}
-              </div>
-            </div>
-            <div class="cyber-dlg-actions">
-              ${canConnect ? `<button type="button" class="primary" id="dlgConnect">Connect</button>` : ''}
-              <button type="button" id="dlgSkip">Skip ▸</button>
-            </div>
-          </div>
-        </div>`);
+      this.ui.showPanel(
+        this.dlgShell(
+          name,
+          role,
+          `<p class="gi-dlg-text" id="dlgTxt">${esc(n.q)}</p>
+          <div id="dlgChoices" style="margin-top:8px">
+            ${n.o
+              .map(
+                (o, i) =>
+                  `<button type="button" class="choice" data-i="${i}">${esc(o.say)}</button>`
+              )
+              .join('')}
+          </div>`,
+          accent
+        )
+      );
       this.ui.panelHost.querySelectorAll('[data-i]').forEach((b) =>
         this.bindTap(b, () => {
           const i = +(b as HTMLElement).dataset.i!;
@@ -487,76 +506,26 @@ export class GameApp {
           this.renderDlg();
         })
       );
-      if (canConnect) {
-        this.bindTap(this.ui.panelHost.querySelector('#dlgConnect'), () =>
-          this.hubConnect(e)
-        );
-      }
-      this.bindTap(this.ui.panelHost.querySelector('#dlgSkip'), () => {
-        this.dlg!.q.shift();
-        this.renderDlg();
-      });
       return;
     }
 
     const text = n && 's' in n ? n.s : '';
-    this.ui.showPanel(`
-      <div class="overlay-dim dlg-layer" style="align-items:flex-end;padding-bottom:20px">
-        <div class="cyber-dlg pop" style="position:relative;left:auto;bottom:auto;transform:none;width:min(920px,100%)">
-          <div class="cyber-dlg-portrait">
-            <img src="./assets/generated/hub/portrait-cory.png" alt="You" />
-          </div>
-          <div class="cyber-dlg-body" id="dlgAdvanceHit">
-            <div class="cyber-dlg-name">${esc(name)} · ${esc(role)}</div>
-            <div class="cyber-dlg-text" id="dlgTxt">${esc(text)}</div>
-            <div class="muted" style="font-size:11px;font-weight:700;margin-top:10px;color:#7eb6c9">
-              Tap to continue · Space / E
-            </div>
-          </div>
-          <div class="cyber-dlg-actions">
-            ${canConnect ? `<button type="button" class="primary" id="dlgConnect">Connect</button>` : ''}
-            <button type="button" id="dlgMessage">Message</button>
-            <button type="button" id="dlgContinue">Continue ▾</button>
-            ${
-              e.tool || e.game
-                ? `<button type="button" id="dlgWorkshop" style="font-size:11px">Open workshop</button>`
-                : ''
-            }
-          </div>
-        </div>
-      </div>`);
-    this.bindTap(this.ui.panelHost.querySelector('#dlgAdvanceHit'), () =>
-      this.advanceDialogue()
+    this.ui.showPanel(
+      this.dlgShell(
+        name,
+        role,
+        `<p class="gi-dlg-text" id="dlgTxt" style="cursor:pointer">${esc(text)}</p>
+        <div class="gi-dlg-hint">
+          <span>Space · E · click to continue</span>
+          <span class="gi-dlg-blink">▼</span>
+        </div>`,
+        accent
+      )
     );
-    this.bindTap(this.ui.panelHost.querySelector('#dlgContinue'), () =>
-      this.advanceDialogue()
-    );
-    if (canConnect) {
-      this.bindTap(this.ui.panelHost.querySelector('#dlgConnect'), () =>
-        this.hubConnect(e)
-      );
-    }
-    this.bindTap(this.ui.panelHost.querySelector('#dlgMessage'), () => {
-      // Real coaching note (not a dead stub)
-      const tip =
-        (e.tipKey && KB[e.tipKey as keyof typeof KB]) ||
-        (e.ask?.[0]?.a?.[0] as string) ||
-        'Write one specific line a peer would forward. Then post it.';
-      const g = this.save();
-      if (tip && !g.tips.includes(tip)) {
-        g.tips.push(tip);
-        addGS(g, 3, 'Message from ' + (e.n || 'coach'));
-        writeSave(g);
-      }
-      this.toast('Coach note saved to Journal');
-      sfx.ui();
-      this.refreshHud();
-    });
-    this.bindTap(this.ui.panelHost.querySelector('#dlgWorkshop'), () => {
-      // Jump to finish so tool/game opens
-      this.dlg!.q = [];
-      this.finishDlg();
-    });
+    const advance = () => this.advanceDialogue();
+    this.bindTap(this.ui.panelHost.querySelector('#dlgTxt'), advance);
+    this.bindTap(this.ui.panelHost.querySelector('.gi-dlg-hint'), advance);
+    void canConnect;
   }
 
   advanceDialogue() {
@@ -792,9 +761,27 @@ export class GameApp {
       },
       forge: {
         t: 'Hook Forge',
-        body: `<p style="font-weight:700">Write three openers. Best practice: inclusive, human, path to a conversation.</p>
-          <textarea id="forgeIn" rows="4" placeholder="We rebuilt onboarding twice before it worked. Curious how you handle week one?"></textarea>
-          <button class="btn" id="forgeGo" style="width:100%;margin-top:10px">Score it</button>
+        body: `<p class="muted" style="font-weight:700;margin:0 0 12px;font-size:13px">Pick a shape, drop in your real numbers, and it assembles a publishable opening.</p>
+          <div class="card2" style="padding:14px;margin-bottom:12px">
+            <p style="font-size:12px;font-weight:900;margin:0 0 8px">1 · Choose the shape</p>
+            <div class="forge-shapes" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <button type="button" class="btn2 forge-shape on" data-i="0">we tried it</button>
+              <button type="button" class="btn2 forge-shape" data-i="1">thinking out loud</button>
+              <button type="button" class="btn2 forge-shape" data-i="2">what it cost</button>
+              <button type="button" class="btn2 forge-shape" data-i="3">shared problem</button>
+            </div>
+            <p id="forgeTpl" style="font-size:12px;font-weight:600;margin:10px 0 0;color:#3E5F80">We tried [thing] and got it wrong before it worked. Here is what changed.</p>
+          </div>
+          <div class="card2" style="padding:14px">
+            <p style="font-size:12px;font-weight:900;margin:0 0 8px">2 · Your real details</p>
+            <label class="forge-fld"><span>What changed</span><input id="f1" type="text" value="onboarding time" /></label>
+            <label class="forge-fld"><span>From</span><input id="f2" type="text" value="21 days" /></label>
+            <label class="forge-fld"><span>To</span><input id="f3" type="text" value="4 days" /></label>
+            <label class="forge-fld"><span>Over what period</span><input id="f4" type="text" value="one quarter" /></label>
+            <label class="forge-fld"><span>The surprising part</span><input id="f5" type="text" value="the checklist, not the tool" /></label>
+            <label class="forge-fld"><span>One-word CTA</span><input id="f6" type="text" value="TEMPLATE" /></label>
+            <button type="button" class="btn" id="forgeGo" style="width:100%;margin-top:8px">Forge the hook</button>
+          </div>
           <div id="forgeOut"></div>`,
       },
       comment: {
@@ -899,19 +886,85 @@ Rule: never miss twice. Protect the cadence you can hold on a bad week.</div>
         }</div>`;
       sfx.ui();
     });
-    this.ui.panelHost.querySelector('#forgeGo')?.addEventListener('click', () => {
-      const v = (this.ui.panelHost.querySelector('#forgeIn') as HTMLTextAreaElement).value;
-      const r = scoreHook(v);
-      g.best = Math.max(g.best, r.score);
-      writeSave(g);
-      (this.ui.panelHost.querySelector('#forgeOut') as HTMLElement).innerHTML = `
-        <div class="card2" style="padding:12px;margin-top:10px">
-          <div style="font-size:36px;font-weight:900;color:${r.score >= 70 ? '#1B9E4B' : '#D9930B'}">${r.score}</div>
-          ${r.shareWorthy ? '<div class="tag" style="background:#E9FBEE">SHARE-WORTHY</div>' : ''}
-          ${r.lines.map((l) => `<div style="font-size:12px;font-weight:700;margin-top:6px">${l.pts}/${l.max} ${l.rule} — <span class="muted">${l.why}</span></div>`).join('')}
-        </div>`;
-      sfx[r.score >= 70 ? 'win' : 'ui']();
-    });
+    // Hook Forge — full shape + details assembler (v35 / demo videos)
+    {
+      const TPL = [
+        'We tried [thing] and got it wrong before it worked. Here is what changed.',
+        'I keep noticing [observation] and I suspect a few of us have hit it too.',
+        '[Time] ago a client asked me [question]. I did not have a good answer.',
+        'Most of us are still guessing at [thing]. Here is our current guess.',
+      ];
+      let shape = 0;
+      const shapes = this.ui.panelHost.querySelectorAll('.forge-shape');
+      shapes.forEach((b) =>
+        this.bindTap(b, () => {
+          shape = +(b as HTMLElement).dataset.i!;
+          shapes.forEach((x) => x.classList.remove('on'));
+          b.classList.add('on');
+          const tpl = this.ui.panelHost.querySelector('#forgeTpl');
+          if (tpl) tpl.textContent = TPL[shape];
+          sfx.ui();
+        })
+      );
+      this.ui.panelHost.querySelector('#forgeGo')?.addEventListener('click', () => {
+        const V = (id: string) =>
+          (
+            this.ui.panelHost.querySelector('#' + id) as HTMLInputElement | null
+          )?.value?.trim() || '';
+        const a = V('f1') || 'onboarding time';
+        const b = V('f2') || '21 days';
+        const c = V('f3') || '4 days';
+        const d = V('f4') || 'one quarter';
+        const e = V('f5') || 'the checklist, not the tool';
+        const w = (V('f6') || 'TEMPLATE').toUpperCase();
+        const lines = [
+          [
+            `We spent ${d} on ${a} and got it wrong twice before it worked.`,
+            `It went from ${b} to ${c} once we stopped blaming the tool. It was ${e}.`,
+          ],
+          [
+            `I keep noticing that ${a} quietly eats more time than anyone admits.`,
+            `Ours sat at ${b} for ${d}. It is ${c} now, and the fix was ${e}.`,
+          ],
+          [
+            `${d} ago someone asked me why our ${a} was stuck at ${b}. I did not have a good answer.`,
+            `The honest one turned out to be ${e}. We are at ${c} now.`,
+          ],
+          [
+            `Most of us are still guessing at ${a}. Here is our current guess.`,
+            `We moved from ${b} to ${c} in ${d} by changing ${e} — and not much else.`,
+          ],
+        ][shape];
+        const txt = `${lines[0]}\n\n${lines[1]}\n\nCurious how you are handling this — and if you want the three steps we used, comment ${w} and I will send them over.`;
+        const r = scoreHook(txt);
+        g.best = Math.max(g.best, r.score);
+        if (!g.team.includes('hook')) {
+          g.team.push('hook');
+          addGS(g, 15, 'Learned HookHero');
+        }
+        writeSave(g);
+        (this.ui.panelHost.querySelector('#forgeOut') as HTMLElement).innerHTML = `
+          <div class="card2" style="padding:14px;margin-top:12px">
+            <p style="font-size:12px;font-weight:900;margin:0 0 8px;color:#0A66C2">Your opening</p>
+            <pre style="white-space:pre-wrap;font:inherit;font-weight:700;font-size:13px;margin:0 0 12px;line-height:1.45">${esc(txt)}</pre>
+            <div style="font-size:32px;font-weight:900;color:${r.score >= 70 ? '#1B9E4B' : '#D9930B'}">${r.score}</div>
+            ${r.shareWorthy ? '<div class="tag" style="background:#E9FBEE;margin:6px 0">SHARE-WORTHY</div>' : ''}
+            ${r.lines.map((l) => `<div style="font-size:12px;font-weight:700;margin-top:6px">${l.pts}/${l.max} ${l.rule} — <span class="muted">${l.why}</span></div>`).join('')}
+            <button type="button" class="btn2" id="forgeCopy" style="width:100%;margin-top:10px">Copy hook</button>
+          </div>`;
+        this.ui.panelHost.querySelector('#forgeCopy')?.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(txt);
+            this.toast('Hook copied');
+            sfx.win();
+          } catch {
+            this.toast('Select and copy manually');
+          }
+        });
+        sfx[r.score >= 70 ? 'win' : 'ui']();
+        this.refreshHud();
+      });
+    }
     this.ui.panelHost.querySelector('#cmtGo')?.addEventListener('click', () => {
       const v = (this.ui.panelHost.querySelector('#cmtIn') as HTMLTextAreaElement).value;
       const empty = /^(great post|so true|this|love this|💯)/i.test(v.trim());

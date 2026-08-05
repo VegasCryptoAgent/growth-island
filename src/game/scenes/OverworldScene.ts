@@ -20,7 +20,7 @@ import { sfx } from '../systems/Audio';
 import { GameApp } from '../GameApp';
 import { net, type Peer } from '../systems/Net';
 import { MobileInput } from '../systems/MobileInput';
-import { startTutorial } from '../ui/Tutorial';
+
 
 type Ent = (typeof ENTS)[number] & {
   wx?: number;
@@ -72,42 +72,175 @@ export class OverworldScene extends Phaser.Scene {
   }
 
   /**
-   * Paint island ground with run-length Graphics fills (not per-tile sprites/textures).
-   * Keeps create() under ~50ms so mobile never freezes on house-select.
+   * Bright classic island ground (v35 / demo videos):
+   * zone-tinted grass, sand paths, beach ring, dense flower motifs.
+   * 8px/tile keeps mobile under budget while matching the flower-field look.
    */
-  /** Bright v34-style island ground (zone-tinted grass, sand paths, sea) */
-  paintGround(grid: Uint8Array) {
+  paintGround(grid: Uint8Array, det?: Uint8Array) {
     const worldW = MAP_W * TILE;
     const worldH = MAP_H * TILE;
-    // 2px/tile for smoother look, still mobile-safe
-    const scale = 2;
+    const scale = 8;
     const mini = document.createElement('canvas');
     mini.width = MAP_W * scale;
     mini.height = MAP_H * scale;
     const ctx = mini.getContext('2d')!;
+    const ZPAL: Record<string, string[]> = {
+      plaza: ['#FFFFFF', '#FFD5E4', '#FFE9A8', '#CFE9FF'],
+      feed: ['#CFE9FF', '#FFFFFF', '#B8E4F5', '#E4F0FA'],
+      grove: ['#FF8FB1', '#FFD84D', '#FFFFFF', '#C6F5B8', '#FFB0D0'],
+      forest: ['#C7B2F5', '#8FE8C8', '#FFFFFF', '#A88CF0'],
+      pier: ['#FFD9A0', '#FFFFFF', '#FFC06A', '#FFE8C4'],
+      peak: ['#FFFFFF', '#FFC6E4', '#E4D6F5', '#F5E8FF'],
+      lab: ['#FFC08A', '#FF9E7A', '#FFE0B8', '#FFFFFF'],
+    };
+    const hash = (x: number, y: number) =>
+      ((x * 374761393 + y * 668265263) >>> 0) & 255;
+
     for (let ty = 0; ty < MAP_H; ty++) {
       for (let tx = 0; tx < MAP_W; tx++) {
         const t = grid[ty * MAP_W + tx];
-        const z = zoneAt(tx, ty);
-        let col = '#1F86C4'; // deep sea
+        const z = zoneAt(tx, ty) as any;
+        const sx = tx * scale;
+        const sy = ty * scale;
+        const h = hash(tx, ty);
+
         if (t === 0) {
-          col = (tx + ty) % 5 === 0 ? '#5BCDE8' : '#6FD8EE';
-        } else if (t === 4) {
-          col = '#F4E2B0'; // beach
-        } else if (t === 3) {
-          col = '#E3CE96'; // path
-        } else if (t === 2) {
-          col = '#8A9A6A'; // rock
-        } else if (t === 1) {
-          col = (z as any)?.g || '#89DA8F';
-          if ((tx * 3 + ty * 7) % 3 === 1) col = (z as any)?.g2 || '#77CD80';
+          // sea — soft bands + foam flecks
+          ctx.fillStyle = h % 7 === 0 ? '#5BCDE8' : h % 5 === 0 ? '#7ADFF2' : '#6FD8EE';
+          ctx.fillRect(sx, sy, scale, scale);
+          if (h % 13 === 0) {
+            ctx.fillStyle = 'rgba(255,255,255,0.28)';
+            ctx.fillRect(sx + 2, sy + 4, scale - 4, 1);
+          }
+          continue;
         }
-        ctx.fillStyle = col;
-        ctx.fillRect(tx * scale, ty * scale, scale, scale);
-        // micro sparkle on grass
-        if (t === 1 && (tx + ty * 3) % 11 === 0) {
-          ctx.fillStyle = 'rgba(255,255,255,.35)';
-          ctx.fillRect(tx * scale, ty * scale, 1, 1);
+        if (t === 4) {
+          ctx.fillStyle = '#F4E2B0';
+          ctx.fillRect(sx, sy, scale, scale);
+          if (h < 90) {
+            ctx.fillStyle = '#E3CE96';
+            ctx.fillRect(sx + 2 + (h % 3), sy + 3 + (h % 2), 3, 2);
+          }
+          continue;
+        }
+        if (t === 2) {
+          ctx.fillStyle = h % 2 ? '#8A9A6A' : '#7A8A5A';
+          ctx.fillRect(sx, sy, scale, scale);
+          ctx.fillStyle = 'rgba(255,255,255,0.12)';
+          ctx.fillRect(sx + 1, sy + 1, scale - 2, 2);
+          continue;
+        }
+
+        // grass base (zone tint)
+        const g1 = z?.g || '#89DA8F';
+        const g2 = z?.g2 || '#77CD80';
+        ctx.fillStyle = h % 3 === 1 ? g2 : g1;
+        ctx.fillRect(sx, sy, scale, scale);
+        // grass variance dots
+        if (h < 100) {
+          ctx.fillStyle = g2;
+          ctx.beginPath();
+          ctx.ellipse(sx + 2 + (h % 5), sy + 2 + ((h >> 2) % 5), 2.2, 1.6, 0, 0, 7);
+          ctx.fill();
+        }
+
+        // sand path over grass
+        if (t === 3) {
+          ctx.fillStyle = '#E8D4A0';
+          ctx.fillRect(sx, sy, scale, scale);
+          ctx.fillStyle = '#D9C48A';
+          for (let k = 0; k < 2; k++) {
+            const ox = 1 + ((h + k * 29) % 6);
+            const oy = 1 + ((h + k * 53) % 6);
+            ctx.beginPath();
+            ctx.ellipse(sx + ox, sy + oy, 1.6, 1.2, 0, 0, 7);
+            ctx.fill();
+          }
+          continue;
+        }
+
+        // flower / leaf / sparkle motifs — sized for 8px/tile so they read after upscale
+        const dd = det ? det[ty * MAP_W + tx] : 1 + (h % 8);
+        if (!dd) continue;
+        const pal = ZPAL[z?.id || 'plaza'] || ZPAL.plaza;
+        for (let k = 0; k < 4; k++) {
+          const hh = (h * (k + 3) * 37) & 255;
+          const ox = 1 + (hh % 6);
+          const oy = 1 + ((hh >> 3) % 6);
+          const kind = (dd + k) % 8;
+          const col = pal[(hh >> 2) % pal.length];
+          if (kind === 0) {
+            ctx.strokeStyle = g2;
+            ctx.lineWidth = 1.1;
+            ctx.beginPath();
+            ctx.moveTo(sx + ox, sy + oy + 2.5);
+            ctx.lineTo(sx + ox + 0.6, sy + oy - 1.5);
+            ctx.moveTo(sx + ox + 2, sy + oy + 2.5);
+            ctx.lineTo(sx + ox + 2.4, sy + oy);
+            ctx.stroke();
+          } else if (kind === 1) {
+            ctx.fillStyle = g2;
+            ctx.beginPath();
+            ctx.ellipse(sx + ox, sy + oy, 1.8, 1.3, 0.4, 0, 7);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.3)';
+            ctx.beginPath();
+            ctx.ellipse(sx + ox - 0.4, sy + oy - 0.4, 0.7, 0.5, 0.4, 0, 7);
+            ctx.fill();
+          } else if (kind === 2) {
+            // 4-petal flower (readable at game zoom)
+            ctx.fillStyle = col;
+            for (let a = 0; a < 4; a++) {
+              const an = a * 1.57 + 0.5;
+              ctx.beginPath();
+              ctx.ellipse(
+                sx + ox + Math.cos(an) * 1.6,
+                sy + oy + Math.sin(an) * 1.6,
+                1.35,
+                1.0,
+                an,
+                0,
+                7
+              );
+              ctx.fill();
+            }
+            ctx.fillStyle = '#FFE07A';
+            ctx.beginPath();
+            ctx.arc(sx + ox, sy + oy, 1.0, 0, 7);
+            ctx.fill();
+          } else if (kind === 3) {
+            ctx.fillStyle = g2;
+            ctx.beginPath();
+            ctx.ellipse(sx + ox, sy + oy, 2.2, 1.2, 0, 0, 7);
+            ctx.fill();
+          } else if (kind === 4) {
+            ctx.strokeStyle = 'rgba(20,40,60,0.2)';
+            ctx.lineWidth = 1.0;
+            ctx.beginPath();
+            ctx.moveTo(sx + ox - 2, sy + oy);
+            ctx.lineTo(sx + ox, sy + oy - 1.5);
+            ctx.lineTo(sx + ox + 2, sy + oy + 0.5);
+            ctx.stroke();
+          } else if (kind === 5) {
+            ctx.strokeStyle = '#8A6740';
+            ctx.lineWidth = 1.1;
+            ctx.beginPath();
+            ctx.moveTo(sx + ox - 2, sy + oy + 0.5);
+            ctx.lineTo(sx + ox + 2, sy + oy - 0.5);
+            ctx.stroke();
+          } else if (kind === 6) {
+            ctx.fillStyle = col;
+            ctx.beginPath();
+            ctx.arc(sx + ox, sy + oy, 1.6, Math.PI, 0);
+            ctx.fill();
+            ctx.fillStyle = '#FFF6E4';
+            ctx.fillRect(sx + ox - 0.5, sy + oy, 1.0, 1.6);
+          } else {
+            ctx.fillStyle = 'rgba(255,255,255,0.65)';
+            ctx.beginPath();
+            ctx.arc(sx + ox, sy + oy, 1.0, 0, 7);
+            ctx.fill();
+          }
         }
       }
     }
@@ -130,8 +263,31 @@ export class OverworldScene extends Phaser.Scene {
 
     this.app = (this.game.registry.get('app') as GameApp) || (window as any).__GI_APP;
     console.log('[overworld] gen map');
-    const { grid, walkable: genWalk } = generateIsland();
+    const { grid, walkable: genWalk, det } = generateIsland();
     this.grid = grid;
+    // Small open plaza cross of sand paths — keep surrounding flower grass (videos)
+    {
+      const cx = 52;
+      const cy = 38;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -5; dx <= 5; dx++) {
+          const tx = cx + dx;
+          const ty = cy + dy;
+          if (tx > 1 && ty > 1 && tx < MAP_W - 2 && ty < MAP_H - 2) {
+            this.grid[ty * MAP_W + tx] = 3;
+          }
+        }
+      }
+      for (let dy = -5; dy <= 5; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const tx = cx + dx;
+          const ty = cy + dy;
+          if (tx > 1 && ty > 1 && tx < MAP_W - 2 && ty < MAP_H - 2) {
+            this.grid[ty * MAP_W + tx] = 3;
+          }
+        }
+      }
+    }
     // v34 solid: sea(0) + rock(2) block; grass/path/beach walk
     this.walkable = (tx: number, ty: number) => {
       if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return false;
@@ -143,11 +299,15 @@ export class OverworldScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, worldW, worldH);
     this.cameras.main.setZoom(cameraZoom());
     this.cameras.main.setBackgroundColor('#BFEAF5');
+    // CRITICAL: physics world defaults to viewport size — without this,
+    // collideWorldBounds clamps the player to ~phone resolution (e.g. 390×844)
+    // and yanks them off the plaza into the Feed District on the first frame.
+    this.physics.world.setBounds(0, 0, worldW, worldH);
     console.log('[overworld] camera ok');
 
-    // Bright island like v34 demos — full walkable map, not a static photo
+    // Bright island like demo videos — flower grass + sand paths
     try {
-      this.paintGround(grid);
+      this.paintGround(grid, det);
     } catch {
       this.add
         .rectangle(worldW / 2, worldH / 2, worldW, worldH, 0xbfeaf5)
@@ -168,18 +328,34 @@ export class OverworldScene extends Phaser.Scene {
         .setOrigin(0.5)
         .setDepth(40);
     }
-    // Landmark props — simple placed markers at zone centres
+    // Landmark props — soft markers (scroll/star-style accents near zone centres)
     for (const z of ZONES as any[]) {
       const cx = (z.x + z.w / 2) * TILE;
       const cy = (z.y + z.h / 2) * TILE;
+      // flower bush cluster
       this.add
-        .circle(cx, cy - 8, 10, Phaser.Display.Color.HexStringToColor(z.a || '#0A66C2').color)
-        .setStrokeStyle(2, 0x123253)
+        .circle(cx - 10, cy + 4, 6, 0x77cd80)
+        .setStrokeStyle(1, 0x123253)
         .setDepth(cy);
       this.add
-        .rectangle(cx, cy + 6, 18, 10, 0xffffff, 0.9)
-        .setStrokeStyle(2, 0x123253)
+        .circle(cx - 6, cy - 2, 5, 0xffd5e4)
         .setDepth(cy + 1);
+      this.add
+        .circle(cx - 14, cy - 1, 4, 0xffe9a8)
+        .setDepth(cy + 1);
+      // zone crest plaque
+      this.add
+        .rectangle(cx + 12, cy - 6, 16, 16, 0xffffff, 0.95)
+        .setStrokeStyle(2, 0x123253)
+        .setDepth(cy + 2);
+      this.add
+        .circle(
+          cx + 12,
+          cy - 6,
+          5,
+          Phaser.Display.Color.HexStringToColor(z.a || '#0A66C2').color
+        )
+        .setDepth(cy + 3);
     }
 
     // Player (Cory) — always spawn on a guaranteed open plaza tile
@@ -227,6 +403,19 @@ export class OverworldScene extends Phaser.Scene {
       .ellipse(px, py + 2, 28, 10, 0x000000, 0.22)
       .setDepth(py - 1)
       .setName('playerShadow');
+    // Name plate like demo videos
+    this.add
+      .text(px, py - 44, this.save.name || 'Traveller', {
+        fontFamily: 'system-ui',
+        fontSize: '11px',
+        color: '#123253',
+        fontStyle: 'bold',
+        backgroundColor: '#ffffffee',
+        padding: { x: 6, y: 2 },
+      })
+      .setOrigin(0.5)
+      .setDepth(py + 3)
+      .setName('playerName');
     this.cameras.main.centerOn(px, py);
     this.cameras.main.startFollow(this.player, true, 0.18, 0.18);
     console.log('[overworld] player ready');
@@ -243,49 +432,63 @@ export class OverworldScene extends Phaser.Scene {
       this.add.circle(x, y - 6, 8, 0xffc53d).setStrokeStyle(2, 0x123253).setDepth(y);
     }
 
-    // Entities — hub NPC "Lia" uses demo-style sprite; others keep sheets
+    // Coaches / spots / foes — classic pixel sheets (Ivy stays Ivy)
     this.ents = (ENTS as Ent[]).map((e, idx) => {
       const z = (ZONES as any[]).find((zz) => zz.id === e.z);
       let tx = z ? z.x + ((z.w / 2 + ((e as any).ox || 0)) | 0) : 50;
       let ty = z ? z.y + ((z.h / 2 + ((e as any).oy || 0)) | 0) : 40;
-      // First plaza NPC stands near player for the connect demo loop
+      // Ivy greets near the plaza spawn (demo videos)
       if (e.id === 'ivy' || (idx === 0 && e.k === 'npc')) {
         tx = 54;
-        ty = 37;
+        ty = 36;
+      }
+      // Keep NPCs on walkable tiles
+      if (!this.walkable(tx, ty)) {
+        for (const [dx, dy] of [
+          [0, 0],
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+          [2, 0],
+          [-2, 0],
+        ]) {
+          if (this.walkable(tx + dx, ty + dy)) {
+            tx += dx;
+            ty += dy;
+            break;
+          }
+        }
       }
       const wx = tx * TILE + TILE / 2;
       const wy = ty * TILE + TILE / 2;
-      const useLia =
-        (e.id === 'ivy' || e.k === 'npc') &&
-        this.textures.exists('lia') &&
-        (e.id === 'ivy' || idx < 2);
-      const sheet = useLia ? 'lia' : NPC_SHEET[e.id] || 'player';
+      const sheet = NPC_SHEET[e.id] || 'player';
       const key = this.textures.exists(sheet)
         ? sheet
         : this.textures.exists('player')
           ? 'player'
           : sheet;
+      const isCoach = e.k === 'npc';
       const sprite = this.add
         .sprite(wx, wy, key)
-        .setDisplaySize(useLia ? 50 : 36, useLia ? 94 : 44)
+        .setDisplaySize(isCoach ? 40 : 36, isCoach ? 48 : 44)
         .setDepth(wy)
-        .setOrigin(0.5, 0.95);
+        .setOrigin(0.5, 0.9);
+      // Name plate like videos (white pill) — "!" only for unmet coaches
+      const labelTxt = e.k === 'foe' ? '⚠' : e.n || '!';
       const label = this.add
-        .text(wx, wy - 48, e.k === 'foe' ? '⚠' : '!', {
+        .text(wx, wy - 42, labelTxt, {
           fontFamily: 'system-ui',
-          fontSize: '16px',
-          color: '#5ef0ff',
+          fontSize: e.k === 'foe' ? '14px' : '11px',
+          color: '#123253',
           fontStyle: 'bold',
-          backgroundColor: '#0a1628',
+          backgroundColor: '#ffffffee',
           padding: { x: 6, y: 2 },
         })
         .setOrigin(0.5)
         .setDepth(wy + 2);
       return {
         ...e,
-        // demo: first coach presents as recruitable contact
-        n: e.id === 'ivy' ? 'Lia' : e.n,
-        role: e.id === 'ivy' ? 'Growth Partner' : e.role,
         wx,
         wy,
         homeX: wx,
@@ -294,7 +497,6 @@ export class OverworldScene extends Phaser.Scene {
         label,
         arm: true,
         patrol: Math.random() * Math.PI * 2,
-        _hub: useLia,
       };
     });
     console.log('[overworld] ents', this.ents.length);
@@ -369,26 +571,20 @@ export class OverworldScene extends Phaser.Scene {
       // HARD force controls on — never leave player stuck without input
       document.body.classList.add('in-game', 'touch');
       document.body.classList.remove('on-title', 'overlay');
-      sm.setEnabled?.(true);
-      sm.syncEnabled?.();
+      // Clear any residual click-to-walk from the house-pick tap
+      sm.reset?.();
+      MobileInput.clear();
+      // Brief grace so the house-select click never becomes a walk target
+      sm.setEnabled?.(false);
+      this.time.delayedCall(450, () => {
+        sm.reset?.();
+        MobileInput.clear();
+        sm.setEnabled?.(true);
+        sm.syncEnabled?.();
+        (this.app as any)?.ui?.mobile?.syncVisibility?.();
+      });
     }
     (this.app as any)?.ui?.mobile?.syncVisibility?.();
-
-    // Carve a large open plaza so the player can never spawn stuck
-    {
-      const cx = 52;
-      const cy = 38;
-      for (let dy = -14; dy <= 14; dy++) {
-        for (let dx = -14; dx <= 14; dx++) {
-          const tx = cx + dx;
-          const ty = cy + dy;
-          if (tx > 1 && ty > 1 && tx < MAP_W - 2 && ty < MAP_H - 2) {
-            this.grid[ty * MAP_W + tx] = 3;
-          }
-        }
-      }
-      // Re-assert walkable uses the carved grid (grid is shared by reference)
-    }
 
     // Hard snap player onto plaza center (never leave them in the sea)
     const plazaX = 52 * TILE + TILE / 2;
@@ -420,10 +616,23 @@ export class OverworldScene extends Phaser.Scene {
     this.blocked = false;
     this.interactGrace = 90;
 
+    // Soft classic tip only — videos jump straight into walking + Ivy, no cyber hub guide
     if (this.registry.get('intro')) {
       this.registry.set('intro', false);
-      this.time.delayedCall(350, () => {
-        if (this.app) startTutorial(this.app);
+      this.time.delayedCall(500, () => {
+        if (!this.app) return;
+        // Skip multi-step modal if player has never met Ivy — toast is enough
+        try {
+          const g = this.save;
+          if (!g.seen?.includes('ivy') && !g.sq?.tutorial) {
+            this.app.toast('Walk to Ivy — she is on the plaza path');
+            // mark so we don't spam; full tutorial still available via startTutorial
+            g.sq = g.sq || {};
+            // leave tutorial unset so Menu can re-show if needed
+          }
+        } catch {
+          /* */
+        }
       });
     }
 
@@ -790,13 +999,20 @@ export class OverworldScene extends Phaser.Scene {
       }
     }
     this.player.setDepth(this.player.y);
-    // Keep foot shadow under player
+    // Keep foot shadow + name plate under/over player
     const shadow = this.children.getByName('playerShadow') as
       | Phaser.GameObjects.Ellipse
       | undefined;
     if (shadow) {
       shadow.setPosition(this.player.x, this.player.y + 2);
       shadow.setDepth(this.player.y - 1);
+    }
+    const pname = this.children.getByName('playerName') as
+      | Phaser.GameObjects.Text
+      | undefined;
+    if (pname) {
+      pname.setPosition(this.player.x, this.player.y - 44);
+      pname.setDepth(this.player.y + 3);
     }
 
     try {
@@ -904,19 +1120,29 @@ export class OverworldScene extends Phaser.Scene {
 
   objectiveText(): string {
     const g = this.save;
-    const daily = g.daily;
-    if (daily && !daily.done && daily.day) {
-      const best = g.games?.feed?.best || 0;
-      return `Daily: Feed ${best.toLocaleString()}/${daily.target.toLocaleString()}`;
+    // Match demo videos: progressive quest card text
+    if (!g.seen?.includes('ivy') && !(g.connections?.length > 0)) {
+      return 'Find Ivy · Profile Plaza';
     }
-    if (g.team.length < 2) return 'Explore — collect Signals · Hub for tools';
-    if (!g.tools.audit) return 'Talk to Ivy · Profile Audit';
-    if (!g.games.feed?.best) return 'Play The Feed (Hub → Feed)';
+    if (!g.team.includes('proof') && !g.tools?.audit) {
+      return 'Talk to Ivy · Profile Architect';
+    }
+    if (!g.team.includes('hook') && !g.tools?.forge) {
+      return 'Find HookHero';
+    }
+    if (!g.tools?.forge) return 'Forge a real opener';
+    if (!g.tools?.audit) return 'Run a Profile Audit';
+    if (!g.games?.feed?.best) return 'Play The Feed';
     const puzzlesToday = Object.values(g.puzzles || {}).filter(
       (p: any) => p.d === dayKey()
     ).length;
     if (puzzlesToday < 3) return `Daily puzzles ${puzzlesToday}/3`;
     if (g.team.length < 7) return `Collect Signals (${g.team.length}/7)`;
+    const daily = g.daily;
+    if (daily && !daily.done && daily.day) {
+      const best = g.games?.feed?.best || 0;
+      return `Daily: Feed ${best.toLocaleString()}/${daily.target.toLocaleString()}`;
+    }
     if (!g.best || g.best < 70) return 'Score a hook at Signal Tower';
     return 'Keep growing — Hub has everything';
   }

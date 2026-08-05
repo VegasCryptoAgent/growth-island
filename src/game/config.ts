@@ -30,13 +30,14 @@ export const MAP_W = 104;
 export const MAP_H = 76;
 export const PLAYER_SPEED = 2.4;
 export const CAMERA_LERP = 0.12;
-export const ZOOM = 1.65;
+/** Closer zoom matches demo videos (dense flower tiles, readable sprites) */
+export const ZOOM = 1.85;
 
-/** Slightly lower zoom on phones so more island is visible */
+/** Phone: still zoomed in enough to feel like the videos */
 export function cameraZoom(): number {
   if (typeof window === 'undefined') return ZOOM;
   const thin = window.innerWidth < 520 || window.innerHeight < 700;
-  return thin ? 1.35 : ZOOM;
+  return thin ? 1.55 : ZOOM;
 }
 
 export function isCoarsePointer(): boolean {

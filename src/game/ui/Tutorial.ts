@@ -36,14 +36,14 @@ export function startTutorial(app: GameApp) {
     /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
   const steps: { title: string; body: string; action?: string }[] = [
     {
-      title: 'Welcome to the Networking Hub',
+      title: 'You made landfall',
       body: isTouch
-        ? 'Drag your finger anywhere on the map to walk. Press Talk near a contact (look for !).'
-        : 'Click and hold with your mouse to walk toward the cursor. Click a spot to go there. Press Talk near a contact (look for !).',
+        ? 'Use the D-pad (or drag) to walk. Coaches greet you on approach — tap Talk near Ivy in Profile Plaza.'
+        : 'WASD or arrows to walk · coaches greet you on approach · Space / E to continue · Journal · Menu for the Signal Deck.',
     },
     {
-      title: 'You’re set',
-      body: 'Connect with coaches, run daily puzzles, and grow your network. Have fun.',
+      title: 'Find Ivy',
+      body: 'Ivy the Profile Architect is waiting on the plaza path. Talk to her first — she hands you the tools that make the Mainland work.',
     },
   ];
 

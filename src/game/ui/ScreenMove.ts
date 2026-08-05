@@ -54,9 +54,10 @@ export class ScreenMove {
 
     const hint = layer.querySelector('#giMoveHint') as HTMLElement | null;
     if (hint) {
+      // Demo videos rely on the D-pad; keep the hint short and non-blocking
       hint.textContent = this.isCoarse
-        ? 'Drag on the map to walk'
-        : 'Click & hold on the map to walk · click a spot to go there';
+        ? 'D-pad or drag to walk'
+        : 'D-pad · WASD · or click to walk';
     }
 
     // Capture phase so we see events before Phaser; still skip UI targets

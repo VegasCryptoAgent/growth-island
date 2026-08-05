@@ -51,59 +51,47 @@ export class UIRoot {
   private mount() {
     this.root.innerHTML = `
       <div class="hud" id="hud">
-        <!-- top left: player card (v34) -->
+        <!-- top left: quest card (demo videos) -->
         <div class="hud-tl">
-          <div class="card hud-player">
-            <div class="hud-avatar" aria-hidden="true">🏝️</div>
-            <div class="hud-player-meta">
-              <div class="hud-player-row">
-                <span class="tag" id="pcRank">Lurker</span>
-                <span id="pcName" class="hud-name">Traveller</span>
-              </div>
-              <div class="bar"><i id="pcXp" style="width:0%"></i></div>
-              <div id="pcXpT" class="hud-xp-txt">0 GS</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- top centre: objective -->
-        <div class="hud-goal">
           <div class="card hud-goal-card">
-            <span class="hud-goal-icon">◈</span>
-            <div>
+            <span class="hud-goal-icon">◎</span>
+            <div class="hud-goal-meta">
               <p id="goalTxt" class="hud-goal-txt">Explore the island</p>
               <p id="zoneName" class="hud-zone muted">Profile Plaza</p>
             </div>
           </div>
+          <div class="card hud-stats">
+            <div class="hud-stat" title="Connections"><span>🤝</span><b id="whoCount">0</b></div>
+            <div class="hud-stat" title="Growth Score"><span>✦</span><b id="pcXpT">0</b></div>
+            <div class="hud-stat" title="Signals"><span>📶</span><b id="sigCount">0/7</b></div>
+          </div>
         </div>
 
-        <!-- top right -->
+        <!-- top right: minimap + chrome -->
         <div class="hud-tr">
-          <button type="button" class="card hud-chip" id="btnWho" title="Hub / multiplayer">
-            <span>👥</span><span id="whoCount">0</span>
-          </button>
+          <div class="card hud-minimap" id="miniMap" title="Island map">
+            <div class="hud-minimap-grid" aria-hidden="true"></div>
+            <div class="dot player" id="miniPlayer"></div>
+            <p class="hud-minimap-cap">R TO TRAVEL · DISCOVER</p>
+          </div>
           <button type="button" class="card hud-chip" id="btnSound" title="Sound">🔊</button>
-          <button type="button" class="card hud-chip" id="btnMenu" title="Menu">☰</button>
         </div>
 
-        <!-- bottom centre actions -->
-        <div class="hud-actions" id="actionRow">
-          <button type="button" class="act" id="actConnect" style="--ac:#0A66C2" title="Hub">
-            <span>🤝</span><b>Hub</b>
-          </button>
-          <button type="button" class="act" id="actTalk" style="--ac:#1BA8DC" title="Talk">
-            <span>💬</span><b>Talk</b>
-          </button>
-          <button type="button" class="act" id="actPuzzle" style="--ac:#F5A623" title="Puzzles">
-            <span>🧩</span><b>Puzzles</b>
-          </button>
-          <button type="button" class="act" id="btnJournal" style="--ac:#7C5CE0" title="Journal">
-            <span>📓</span><b>Journal</b>
-          </button>
+        <!-- bottom right: journal + menu (demo videos) -->
+        <div class="hud-br" id="actionRow">
+          <button type="button" class="hud-fab" id="btnJournal" title="Journal">📓</button>
+          <button type="button" class="hud-fab" id="btnMenu" title="Menu">☰</button>
+          <button type="button" class="hud-fab hud-fab-talk" id="actTalk" title="Talk">💬</button>
         </div>
 
+        <!-- hidden legacy hooks -->
+        <button type="button" class="hidden" id="actConnect"></button>
+        <button type="button" class="hidden" id="actPuzzle"></button>
+        <button type="button" class="hidden" id="btnWho"></button>
+        <span class="hidden" id="pcRank">Lurker</span>
+        <span class="hidden" id="pcName">Traveller</span>
+        <i class="hidden" id="pcXp" style="width:0%"></i>
         <div class="hidden" id="questTxt"></div>
-        <div class="hidden" id="miniMap"><div class="dot player" id="miniPlayer"></div></div>
       </div>
       <div id="panelHost"></div>
       <div id="toastHost"></div>
@@ -164,15 +152,20 @@ export class UIRoot {
   }
 
   updateHud(g: GameSave, zone: string, goal: string, peers = 0) {
-    this.pcRank.textContent = rankOf(g.gs);
-    this.pcName.textContent = g.name || 'Traveller';
+    if (this.pcRank) this.pcRank.textContent = rankOf(g.gs);
+    if (this.pcName) this.pcName.textContent = g.name || 'Traveller';
     const nxt = nextRankAt(g.gs);
-    this.pcXp.style.width = Math.min(100, (g.gs / nxt) * 100) + '%';
-    this.pcXpT.textContent = `${g.gs} GS · ${g.team.length}/7 Signals · 🔥${g.streak || 1}d`;
-    this.zoneName.textContent = zone || 'Profile Plaza';
-    this.goalTxt.textContent = goal;
-    this.whoCount.textContent = String(peers);
-    this.soundBtn.textContent = g.sound ? '🔊' : '🔇';
+    if (this.pcXp) this.pcXp.style.width = Math.min(100, (g.gs / nxt) * 100) + '%';
+    // Demo videos show compact GS number
+    if (this.pcXpT) this.pcXpT.textContent = String(g.gs || 0);
+    if (this.zoneName) this.zoneName.textContent = zone || 'Profile Plaza';
+    if (this.goalTxt) this.goalTxt.textContent = goal;
+    // Connections (prefer real connections; fall back to online peers)
+    const conn = g.connections?.length || 0;
+    if (this.whoCount) this.whoCount.textContent = String(conn || peers || 0);
+    const sig = this.root.querySelector('#sigCount');
+    if (sig) sig.textContent = `${g.team?.length || 0}/7`;
+    if (this.soundBtn) this.soundBtn.textContent = g.sound ? '🔊' : '🔇';
     if (this.questEl) {
       const connected =
         (g.connections?.length || 0) > 0 || (g.seen?.length || 0) > 1;

@@ -15,11 +15,11 @@ export class MobileControls {
     el.id = 'gi-touch-pad';
     el.innerHTML = `
       <div class="gi-dpad" id="giDpad" aria-label="Move">
-        <button type="button" class="gi-dbtn gi-up" data-dx="0" data-dy="-1">▲</button>
-        <button type="button" class="gi-dbtn gi-left" data-dx="-1" data-dy="0">◀</button>
-        <button type="button" class="gi-dbtn gi-center" disabled></button>
-        <button type="button" class="gi-dbtn gi-right" data-dx="1" data-dy="0">▶</button>
-        <button type="button" class="gi-dbtn gi-down" data-dx="0" data-dy="1">▼</button>
+        <button type="button" class="gi-dbtn gi-up" data-dx="0" data-dy="-1" aria-label="Up">▲</button>
+        <button type="button" class="gi-dbtn gi-left" data-dx="-1" data-dy="0" aria-label="Left">◀</button>
+        <button type="button" class="gi-dbtn gi-center" disabled aria-hidden="true"></button>
+        <button type="button" class="gi-dbtn gi-right" data-dx="1" data-dy="0" aria-label="Right">▶</button>
+        <button type="button" class="gi-dbtn gi-down" data-dx="0" data-dy="1" aria-label="Down">▼</button>
       </div>
     `;
     document.body.appendChild(el);
