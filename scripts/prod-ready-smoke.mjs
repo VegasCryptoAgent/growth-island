@@ -167,14 +167,14 @@ async function main() {
       ok('dialogue advances', true, 'no continue needed');
     }
 
-    // HUD buttons
+    // HUD / direct APIs (some chrome is menu-only)
     await page.evaluate(() => {
       window.__GI_APP.ui.clearPanel();
       window.__GI_APP.dlg = null;
       window.__GI_APP.scene.blocked = false;
       document.body.classList.remove('overlay');
+      window.__GI_APP.openPuzzles();
     });
-    await page.click('#actPuzzle');
     await page.waitForTimeout(350);
     t = await panelText(page);
     ok('hud puzzles', /puzzle|thread|grid|ladder/i.test(t));
@@ -191,6 +191,7 @@ async function main() {
 
     await page.evaluate(() => {
       window.__GI_APP.ui.clearPanel();
+      window.__GI_APP.dlg = null;
       window.__GI_APP.scene.blocked = false;
       document.body.classList.remove('overlay');
     });
